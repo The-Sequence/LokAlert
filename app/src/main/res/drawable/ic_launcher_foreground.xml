@@ -1,0 +1,87 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="240dp"
+    android:height="240dp"
+    android:viewportWidth="240"
+    android:viewportHeight="240">
+
+    <!-- 1. Outer Blue Ring -->
+    <!-- FIXED: Drawn as 4 connected arcs to prevent rendering glitches/gaps -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeWidth="18"
+        android:strokeColor="#345C86"
+        android:pathData="
+            M 120, 20
+            A 100,100 0 0 1 220, 120
+            A 100,100 0 0 1 120, 220
+            A 100,100 0 0 1 20, 120
+            A 100,100 0 0 1 120, 20
+            Z" />
+
+    <!-- 2. Red Sound Waves -->
+    <group>
+        <!-- Left Arcs -->
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M85,95 A45,45 0 0,0 85,145"
+            android:strokeWidth="10"
+            android:strokeColor="#EF1C25"
+            android:strokeLineCap="round" />
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M65,85 A65,65 0 0,0 65,155"
+            android:strokeWidth="10"
+            android:strokeColor="#EF1C25"
+            android:strokeLineCap="round" />
+
+        <!-- Right Arcs -->
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M155,95 A45,45 0 0,1 155,145"
+            android:strokeWidth="10"
+            android:strokeColor="#EF1C25"
+            android:strokeLineCap="round" />
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M175,85 A65,65 0 0,1 175,155"
+            android:strokeWidth="10"
+            android:strokeColor="#EF1C25"
+            android:strokeLineCap="round" />
+    </group>
+
+    <!-- 3. Bell Body -->
+    <group>
+        <!-- Top Knob -->
+        <path
+            android:fillColor="#EF1C25"
+            android:pathData="M110,78 L130,78 A10,8 0 1,0 110,78 Z" />
+        <!-- Main Bell Shape -->
+        <path
+            android:fillColor="#EF1C25"
+            android:pathData="M120,80 C135,80 148,95 152,125 C155,145 168,155 170,155 L170,162 L70,162 L70,155 C72,155 85,145 88,125 C92,95 105,80 120,80 Z" />
+        <!-- Bell Clapper (Bottom nub) -->
+        <path
+            android:fillColor="#EF1C25"
+            android:pathData="M110,162 L130,162 A10,10 0 0,1 110,162 Z" />
+    </group>
+
+    <!-- 4. Grey Oval Shadow -->
+    <!-- This sits on top of the bell, but below the pin -->
+    <path
+        android:fillColor="#B2B4B6"
+        android:pathData="M120,154 m-18,0 a18,6 0 1,0 36,0 a18,6 0 1,0 -36,0"
+        android:strokeWidth="2"
+        android:strokeColor="#000000" />
+
+    <!-- 5. Blue Map Pin -->
+    <!-- This sits on top of everything -->
+    <path
+        android:fillColor="#0C2245"
+        android:pathData="M120,154 C120,154 138,130 138,116 A18,18 0 1,0 102,116 C102,130 120,154 120,154 Z" />
+
+    <!-- 6. Red Dot inside Pin -->
+    <path
+        android:fillColor="#EF1C25"
+        android:pathData="M120,116 A6,6 0 1,0 120,116.1" />
+
+</vector>
