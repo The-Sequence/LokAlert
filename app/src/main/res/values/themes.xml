@@ -2,4 +2,8 @@
 <resources>
 
     <style name="Theme.LokAlert" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.LokAlert.NoActionBar">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
 </resources>
