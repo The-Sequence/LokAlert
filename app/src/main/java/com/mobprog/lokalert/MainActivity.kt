@@ -56,7 +56,7 @@ import java.util.Calendar
 import java.util.Locale
 import java.util.UUID
 
-data class Alarm(val id: Long, val time: String, val soundUri: String, val isEnabled: Boolean)
+data class Alarm(val id: Long, val name: String, val time: String, val soundUri: String, val isEnabled: Boolean)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -93,9 +93,9 @@ fun LokAlertApp() {
     var alarms by remember {
         mutableStateOf(
             listOf(
-                Alarm(id = 1L, time = "07:00 AM", soundUri = defaultRingtoneUri, isEnabled = true),
-                Alarm(id = 2L, time = "08:30 AM", soundUri = defaultRingtoneUri, isEnabled = false),
-                Alarm(id = 3L, time = "09:15 AM", soundUri = defaultRingtoneUri, isEnabled = true)
+                Alarm(id = 1L, name = "Morning Alarm", time = "07:00 AM", soundUri = defaultRingtoneUri, isEnabled = true),
+                Alarm(id = 2L, name = "Work Meeting", time = "08:30 AM", soundUri = defaultRingtoneUri, isEnabled = false),
+                Alarm(id = 3L, name = "Lunch Break", time = "12:00 PM", soundUri = defaultRingtoneUri, isEnabled = true)
             )
         )
     }
@@ -248,6 +248,7 @@ fun EditAlarmDialog(alarm: Alarm?, onDismiss: () -> Unit, onSave: (Alarm) -> Uni
     val context = LocalContext.current
     val defaultRingtoneUri = remember { RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString() }
 
+    var name by remember { mutableStateOf(alarm?.name ?: "Alarm") }
     var time by remember { mutableStateOf(alarm?.time ?: "07:00 AM") }
     var soundUri by remember { mutableStateOf(alarm?.soundUri ?: defaultRingtoneUri) }
 
@@ -293,6 +294,13 @@ fun EditAlarmDialog(alarm: Alarm?, onDismiss: () -> Unit, onSave: (Alarm) -> Uni
         text = {
             Column {
                 OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Alarm Name") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
                     value = time,
                     onValueChange = { },
                     label = { Text("Time") },
@@ -320,7 +328,7 @@ fun EditAlarmDialog(alarm: Alarm?, onDismiss: () -> Unit, onSave: (Alarm) -> Uni
         confirmButton = {
             Button(onClick = {
                 val alarmId = alarm?.id ?: UUID.randomUUID().mostSignificantBits
-                val newAlarm = alarm?.copy(time = time, soundUri = soundUri) ?: Alarm(id = alarmId, time = time, soundUri = soundUri, isEnabled = true)
+                val newAlarm = alarm?.copy(name = name, time = time, soundUri = soundUri) ?: Alarm(id = alarmId, name = name, time = time, soundUri = soundUri, isEnabled = true)
                 onSave(newAlarm)
             }) { Text("Save") }
         },
@@ -339,8 +347,9 @@ fun AlarmItem(alarm: Alarm, onToggle: (Boolean) -> Unit, onDelete: () -> Unit, o
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(text = alarm.time, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(text = alarm.name, fontSize = 14.sp, color = Color.Gray)
             Text(text = getRingtoneTitle(context, alarm.soundUri), fontSize = 14.sp, color = Color.Gray)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -357,6 +366,7 @@ fun scheduleAlarm(context: Context, alarm: Alarm) {
     val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     val intent = Intent(context, AlarmReceiver::class.java).apply {
         putExtra("ALARM_ID", alarm.id)
+        putExtra("ALARM_NAME", alarm.name)
         putExtra("ALARM_SOUND_URI", alarm.soundUri)
     }
 
@@ -633,4 +643,3 @@ fun BottomNavBar(currentScreen: String, onScreenSelected: (String) -> Unit) {
         )
     }
 }
-

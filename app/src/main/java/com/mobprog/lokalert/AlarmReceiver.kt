@@ -27,6 +27,7 @@ class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val alarmId = intent.getLongExtra("ALARM_ID", -1)
+        val alarmName = intent.getStringExtra("ALARM_NAME") ?: "LokAlert"
 
         if (intent.action == ACTION_DISMISS) {
             stopRingtone()
@@ -63,7 +64,7 @@ class AlarmReceiver : BroadcastReceiver() {
         // Build the notification
         val notification = NotificationCompat.Builder(context, "lok_alert_channel")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("LokAlert")
+            .setContentTitle(alarmName)
             .setContentText("Your alarm is going off!")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
