@@ -63,4 +63,7 @@ dependencies {
     implementation(libs.google.maps.compose)
     implementation(libs.play.services.location)
     testImplementation(libs.junit)
+    // Add this line to fix the error:
+    implementation(libs.places)
+
 }

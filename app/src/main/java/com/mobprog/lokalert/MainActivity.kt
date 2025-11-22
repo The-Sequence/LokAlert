@@ -1,7 +1,5 @@
 package com.mobprog.lokalert
 
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.AlarmManager
@@ -61,6 +59,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -85,6 +85,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -99,6 +100,9 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.libraries.places.api.Places
+import com.google.android.libraries.places.api.model.AutocompleteSessionToken
+import com.google.android.libraries.places.api.net.FindAutocompletePredictionsRequest
 import com.google.maps.android.compose.CameraPositionState
 import com.google.maps.android.compose.Circle
 import com.google.maps.android.compose.GoogleMap
@@ -121,6 +125,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Initialize Places API
+        if (!Places.isInitialized()) {
+            val apiKey = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA).metaData?.getString("com.google.android.geo.API_KEY")
+            if (apiKey != null) {
+                Places.initialize(applicationContext, apiKey)
+            }
+        }
         setContent {
             LokAlertTheme {
                 RequestPermissions()
@@ -208,16 +219,6 @@ fun DefaultPreview() {
     }
 }
 
-// Add this to the bottom of your MainActivity.kt file, outside any class
-fun Modifier.bypassing(): Modifier = this.pointerInput(Unit) {
-    awaitPointerEventScope {
-        while (true) {
-            awaitPointerEvent(pass = PointerEventPass.Initial)
-        }
-    }
-}
-
-
 @Composable
 fun TopBar(color: Color) {
     Box(
@@ -254,9 +255,42 @@ fun SearchScreen() {
 @Composable
 fun SearchSection(
     onPlacePinClick: (() -> Unit)? = null,
-    onSearch: ((String) -> Unit)? = null
+    onSearch: ((String) -> Unit)? = null,
+    onSuggestionClick: ((String) -> Unit)? = null
 ) {
     var searchText by remember { mutableStateOf("") }
+    var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
+    var expanded by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    
+    // Only create the client if Places is initialized
+    val placesClient = remember {
+        if (Places.isInitialized()) Places.createClient(context) else null
+    }
+    val token = remember { AutocompleteSessionToken.newInstance() }
+
+    LaunchedEffect(searchText) {
+        if (searchText.isNotEmpty() && placesClient != null) {
+            val request = FindAutocompletePredictionsRequest.builder()
+                .setCountries("PH")
+                .setSessionToken(token)
+                .setQuery(searchText)
+                .build()
+
+            placesClient.findAutocompletePredictions(request)
+                .addOnSuccessListener { response ->
+                    suggestions = response.autocompletePredictions.map { it.getFullText(null).toString() }
+                    expanded = suggestions.isNotEmpty()
+                }
+                .addOnFailureListener { 
+                    suggestions = emptyList()
+                    expanded = false
+                }
+        } else {
+            suggestions = emptyList()
+            expanded = false
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -281,9 +315,27 @@ fun SearchSection(
             keyboardActions = KeyboardActions(
                 onSearch = {
                     onSearch?.invoke(searchText)
+                    expanded = false
                 }
             )
         )
+        
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.fillMaxWidth(0.9f) // Adjust width as needed
+        ) {
+            suggestions.forEach { suggestion ->
+                DropdownMenuItem(
+                    text = { Text(text = suggestion) },
+                    onClick = {
+                        searchText = suggestion
+                        expanded = false
+                        onSuggestionClick?.invoke(suggestion)
+                    }
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(10.dp))
 
@@ -382,15 +434,15 @@ fun MapsScreen() {
     }
     val coroutineScope = rememberCoroutineScope()
     
-    var offsetX by remember { mutableStateOf(0f) }
-    var offsetY by remember { mutableStateOf(0f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraPositionState,
             properties = MapProperties(isMyLocationEnabled = hasLocationPermission),
-            onMapClick = { latLng ->
+            onMapClick = { 
                  // Optional: Click map to set pin as well
                  // markerPosition = latLng
             }
@@ -406,8 +458,9 @@ fun MapsScreen() {
                 Marker(
                     state = markerState,
                     title = "Selected Location",
-                    draggable = true,
+                    draggable = true, // Make the marker draggable
                     onClick = {
+                        // Keep default behavior (show info window) but we can add custom logic here
                         false 
                     }
                 )
@@ -551,6 +604,34 @@ fun MapsScreen() {
                             }
                         }
                     }
+                },
+                onSuggestionClick = { suggestion ->
+                    coroutineScope.launch {
+                        try {
+                            val geocoder = Geocoder(context)
+                            val addresses = withContext(Dispatchers.IO) {
+                                @Suppress("DEPRECATION")
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    geocoder.getFromLocationName(suggestion, 1)
+                                } else {
+                                    geocoder.getFromLocationName(suggestion, 1)
+                                }
+                            }
+
+                            if (!addresses.isNullOrEmpty()) {
+                                val address = addresses[0]
+                                val latLng = LatLng(address.latitude, address.longitude)
+                                cameraPositionState.animate(
+                                    CameraUpdateFactory.newLatLngZoom(latLng, 15f)
+                                )
+                            } else {
+                                Toast.makeText(context, "Location not found", Toast.LENGTH_SHORT).show()
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            Toast.makeText(context, "Error searching location", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
             )
         }
@@ -679,7 +760,6 @@ fun EditAlarmDialog(alarm: Alarm, onDismiss: () -> Unit, onSave: (Alarm) -> Unit
                     val amPm = if (hourOfDay >= 12) "PM" else "AM"
                     val hour = if (hourOfDay == 0 || hourOfDay == 12) 12 else hourOfDay % 12
                     time = String.format(Locale.getDefault(), "%02d:%02d %s", hour, minute, amPm)
-                    showTimePicker = false
                 },
                 calendar.get(Calendar.HOUR_OF_DAY),
                 calendar.get(Calendar.MINUTE),
