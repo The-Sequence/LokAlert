@@ -36,6 +36,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -46,6 +47,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -654,7 +656,10 @@ fun AlarmsScreen(alarmsList: List<Alarm>, onAlarmsChange: (List<Alarm>) -> Unit)
         }
     }
     if (showEditDialog) {
-        EditAlarmDialog(alarm = alarmToEdit, onDismiss = { showEditDialog = false }) { updatedAlarm ->
+        EditAlarmDialog(
+            alarm = alarmToEdit,
+            onDismiss = { showEditDialog = false }
+        ) { updatedAlarm ->
             if (alarmToEdit == null) {
                 onAlarmsChange(alarmsList + updatedAlarm)
                 if (updatedAlarm.isEnabled) scheduleAlarm(context, updatedAlarm)
@@ -724,21 +729,36 @@ fun EditAlarmDialog(alarm: Alarm?, onDismiss: () -> Unit, onSave: (Alarm) -> Uni
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Name") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = time,
-                    onValueChange = {},
-                    label = { Text("Time") },
-                    readOnly = true,
-                    modifier = Modifier.fillMaxWidth().clickable { showTimePicker() },
-                    trailingIcon = { Icon(Icons.Default.DateRange, null) }
+
+                // --- FIXED TIME INPUT: WRAPPED IN BOX FOR CLICKABILITY ---
+                val clickableColors = OutlinedTextFieldDefaults.colors(
+                    disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                    disabledBorderColor = MaterialTheme.colorScheme.outline,
+                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    disabledContainerColor = Color.Transparent
                 )
+
+                Box(modifier = Modifier.fillMaxWidth().clickable { showTimePicker() }) {
+                    OutlinedTextField(
+                        value = time,
+                        onValueChange = {},
+                        label = { Text("Time") },
+                        enabled = false, // Lets clicks pass to Box
+                        colors = clickableColors,
+                        modifier = Modifier.fillMaxWidth(),
+                        trailingIcon = { Icon(Icons.Default.DateRange, null) }
+                    )
+                }
+                // ---------------------------------------------------------
+
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("Repeat", style = MaterialTheme.typography.labelMedium)
 
-                // --- FIX: SCROLLABLE ROW & 2-LETTER LABELS ---
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -772,13 +792,45 @@ fun EditAlarmDialog(alarm: Alarm?, onDismiss: () -> Unit, onSave: (Alarm) -> Uni
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = getRingtoneTitle(context, soundUri),
-                    onValueChange = {},
-                    readOnly = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    trailingIcon = { Icon(Icons.Default.Notifications, null) }
-                )
+
+                // --- FIXED SOUND INPUT: WRAPPED IN BOX FOR CLICKABILITY ---
+                // This prevents the text field from capturing focus, allowing
+                // the user to tap anywhere to trigger the ringtone picker (system).
+                // We use the 'System' button logic as default tap action for the box.
+                Box(modifier = Modifier.fillMaxWidth().clickable {
+                    // Default tap on the box opens system picker
+                    ringtonePicker.launch(
+                        Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                            putExtra(
+                                RingtoneManager.EXTRA_RINGTONE_TYPE,
+                                RingtoneManager.TYPE_ALARM
+                            )
+                            putExtra(
+                                RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT,
+                                true
+                            )
+                            putExtra(
+                                RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI,
+                                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                            )
+                            putExtra(
+                                RingtoneManager.EXTRA_RINGTONE_EXISTING_URI,
+                                Uri.parse(soundUri)
+                            )
+                        }
+                    )
+                }) {
+                    OutlinedTextField(
+                        value = getRingtoneTitle(context, soundUri),
+                        onValueChange = {},
+                        enabled = false, // Lets clicks pass to Box
+                        colors = clickableColors,
+                        modifier = Modifier.fillMaxWidth(),
+                        trailingIcon = { Icon(Icons.Default.Notifications, null) }
+                    )
+                }
+                // ----------------------------------------------------------
+
                 Spacer(modifier = Modifier.height(8.dp))
                 Row {
                     OutlinedButton(
@@ -834,9 +886,17 @@ fun EditAlarmDialog(alarm: Alarm?, onDismiss: () -> Unit, onSave: (Alarm) -> Uni
 }
 
 @Composable
-fun AlarmItem(alarm: Alarm, onToggle: (Boolean) -> Unit, onDelete: () -> Unit, onClick: () -> Unit) {
+fun AlarmItem(
+    alarm: Alarm,
+    onToggle: (Boolean) -> Unit,
+    onDelete: () -> Unit,
+    onClick: () -> Unit
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -972,7 +1032,7 @@ fun BottomNavBar(currentScreen: String, onScreenSelected: (String) -> Unit) {
         listOf(
             "Search" to Icons.Default.Search,
             "Favorites" to Icons.Default.Favorite,
-            "Alarms" to Icons.Default.Info,
+            "Alarms" to Icons.Default.Star,
             "Settings" to Icons.Default.Settings
         ).forEach { (name, icon) ->
             NavigationBarItem(
