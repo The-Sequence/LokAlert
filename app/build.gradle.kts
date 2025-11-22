@@ -65,5 +65,9 @@ dependencies {
     testImplementation(libs.junit)
     // Add this line to fix the error:
     implementation(libs.places)
+    // Add Compose Foundation (this is often implicitly needed for many basic modifiers)
+    implementation("androidx.compose.foundation:foundation")
+
+
 
 }

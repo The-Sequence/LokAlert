@@ -1,5 +1,6 @@
 package com.mobprog.lokalert
 
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import android.Manifest
@@ -161,9 +162,11 @@ fun RequestPermissions() {
 
 @Composable
 fun LokAlertApp() {
-    var currentScreen by remember { mutableStateOf("Search") }
+    var currentScreen by remember { mutableStateOf("Maps") }
     var titleColor by remember { mutableStateOf(Color(0xFF006DFF)) }
     var isRainbowEffectEnabled by remember { mutableStateOf(false) }
+    var recentSearches by remember { mutableStateOf(listOf("Manila, PH", "Cebu, PH", "Davao, PH")) } // Initialize state
+    var favoriteLocations by remember { mutableStateOf(listOf<String>()) } // NEW STATE
 
     val animatedTitleColor = remember {
         Animatable(
@@ -193,6 +196,24 @@ fun LokAlertApp() {
         }
     }
 
+    fun addRecentSearch(location: String) {
+        val MAX_HISTORY = 5
+        if (!recentSearches.contains(location)) {
+            recentSearches = listOf(location) + recentSearches
+            if (recentSearches.size > MAX_HISTORY) {
+                recentSearches = recentSearches.take(MAX_HISTORY)
+            }
+        }
+    }
+    
+    fun toggleFavorite(location: String) { // NEW FUNCTION
+        favoriteLocations = if (favoriteLocations.contains(location)) {
+            favoriteLocations.filter { it != location }
+        } else {
+            favoriteLocations + location
+        }
+    }
+
     Scaffold(
         topBar = { TopBar(animatedTitleColor.value) },
         bottomBar = { BottomNavBar(currentScreen) { currentScreen = it } },
@@ -201,8 +222,12 @@ fun LokAlertApp() {
         Box(modifier = Modifier.padding(paddingValues)) {
             when (currentScreen) {
                 "Search" -> SearchScreen()
-                "Favorites" -> FavoritesScreen()
-                "Maps" -> MapsScreen()
+                "Favorites" -> FavoritesScreen(
+                    recentSearches = recentSearches,
+                    favoriteLocations = favoriteLocations,
+                    onToggleFavorite = ::toggleFavorite
+                ) // Pass state and updater
+                "Maps" -> MapsScreen(onNewSearch = ::addRecentSearch) // Pass updater
                 "Alarms" -> AlarmsScreen()
                 "Settings" -> SettingsScreen(
                     onColorChange = { titleColor = it },
@@ -307,14 +332,16 @@ fun SearchSection(
 
     Column(
         modifier = Modifier
-            .padding(16.dp)
+            .padding(12.dp)
             .fillMaxWidth()
     ) {
         OutlinedTextField(
             value = searchText,
             onValueChange = { searchText = it },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Search locations...") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+            placeholder = { Text("Search locations...", fontSize = 14.sp) },
             trailingIcon = { 
                 Icon(
                     Icons.Default.Search, 
@@ -350,7 +377,7 @@ fun SearchSection(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         Text(
             text = "OR",
@@ -358,11 +385,13 @@ fun SearchSection(
             color = Color.Gray
         )
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         Button(
             onClick = { onPlacePinClick?.invoke() },
-            modifier = Modifier.align(Alignment.CenterHorizontally),
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .height(40.dp),
             shape = RoundedCornerShape(30.dp)
         ) {
             Icon(Icons.Default.Place, contentDescription = null)
@@ -370,7 +399,7 @@ fun SearchSection(
             Text("Click to Place Pin on Map")
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
     }
 }
 
@@ -411,7 +440,7 @@ fun RecentSearchSection() {
 
 @SuppressLint("MissingPermission")
 @Composable
-fun MapsScreen() {
+fun MapsScreen(onNewSearch: (String) -> Unit) {
     val context = LocalContext.current
     var hasLocationPermission by remember {
         mutableStateOf(
@@ -525,7 +554,7 @@ fun MapsScreen() {
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (markerPosition != null) {
                         Button(
                             onClick = {
@@ -566,7 +595,7 @@ fun MapsScreen() {
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .background(Color.White.copy(alpha = 0.9f))
+                .background(Color(0xFFF0F0F0))
                 .fillMaxWidth()
         ) {
             SearchSection(
@@ -596,6 +625,7 @@ fun MapsScreen() {
                 },
                 onSearch = { query ->
                     if (query.isNotBlank()) {
+                        onNewSearch(query) // Record search on manual search
                         coroutineScope.launch {
                             try {
                                 val geocoder = Geocoder(context)
@@ -625,6 +655,7 @@ fun MapsScreen() {
                     }
                 },
                 onSuggestionClick = { suggestion ->
+                    onNewSearch(suggestion) // Record search on suggestion click
                     coroutineScope.launch {
                         try {
                             val geocoder = Geocoder(context)
@@ -658,16 +689,99 @@ fun MapsScreen() {
 }
 
 @Composable
-fun FavoritesScreen() {
+fun SearchHistoryItem(location: String, isFavorite: Boolean, onToggleFavorite: (String) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { /* TODO: Implement navigation/search on click */ }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Place, contentDescription = "Location", modifier = Modifier.size(24.dp))
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(location, fontSize = 16.sp)
+        }
+        
+        IconButton(onClick = { onToggleFavorite(location) }) {
+            Icon(
+                Icons.Default.Favorite, 
+                contentDescription = if (isFavorite) "Remove from Favorites" else "Add to Favorites",
+                tint = if (isFavorite) Color.Red else Color.Gray
+            )
+        }
+    }
+}
+
+@Composable
+fun FavoritesScreen(
+    recentSearches: List<String>,
+    favoriteLocations: List<String>,
+    onToggleFavorite: (String) -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 16.dp), // Adjust padding for a cleaner look
     ) {
-        Text("Favorites", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("You haven't added any favorite locations yet.", color = Color.Gray)
+        // Main title for the screen
+        Text("My Locations", fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp, bottom = 16.dp))
+
+        // First Section/Row: Search History
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            Text("Recent Search History", fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = Color.Gray)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Scrollable and constrained history list using LazyColumn
+            if (recentSearches.isEmpty()) {
+                Text("No recent searches.", color = Color.LightGray)
+            } else {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 200.dp), // Limit height to about 5-6 items, enabling scroll if more exist
+                    userScrollEnabled = true,
+                ) {
+                    itemsIndexed(recentSearches) { index, location ->
+                        val isFavorite = favoriteLocations.contains(location)
+                        SearchHistoryItem(
+                            location = location,
+                            isFavorite = isFavorite,
+                            onToggleFavorite = onToggleFavorite
+                        )
+                        HorizontalDivider()
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp)) // Separator space between the two main sections
+
+        // Second Section/Row: Favorite Locations Content
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.Start // Align text to start for better layout when list is populated
+        ) {
+            Text("Favorite Locations", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 16.dp))
+            if (favoriteLocations.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text("You haven't added any favorite locations yet.", color = Color.Gray)
+                }
+            } else {
+                favoriteLocations.forEach { location ->
+                    // Reuse SearchHistoryItem for display, as it now handles the favorite/unfavorite logic
+                    SearchHistoryItem(
+                        location = location,
+                        isFavorite = true, // It is a favorite if it's in this list
+                        onToggleFavorite = onToggleFavorite
+                    )
+                    HorizontalDivider()
+                }
+            }
+        }
     }
 }
 
@@ -979,12 +1093,6 @@ fun SettingsScreen(onColorChange: (Color) -> Unit, isRainbowEnabled: Boolean, on
 @Composable
 fun BottomNavBar(currentScreen: String, onScreenSelected: (String) -> Unit) {
     NavigationBar {
-        NavigationBarItem(
-            selected = currentScreen == "Search",
-            onClick = { onScreenSelected("Search") },
-            icon = { Icon(Icons.Default.Search, contentDescription = null) },
-            label = { Text("Search") }
-        )
         NavigationBarItem(
             selected = currentScreen == "Favorites",
             onClick = { onScreenSelected("Favorites") },
