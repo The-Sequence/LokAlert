@@ -446,7 +446,7 @@ fun MapsScreen() {
         position = CameraPosition.fromLatLngZoom(LatLng(1.35, 103.87), 10f)
     }
     val coroutineScope = rememberCoroutineScope()
-    
+
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
 
@@ -455,14 +455,14 @@ fun MapsScreen() {
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraPositionState,
             properties = MapProperties(isMyLocationEnabled = hasLocationPermission),
-            onMapClick = { 
+            onMapClick = {
                  // Optional: Click map to set pin as well
                  // markerPosition = latLng
             }
         ) {
             markerPosition?.let { position ->
                 val markerState = rememberMarkerState(position = position)
-                
+
                 // Sync changes from marker drag back to our state
                 if (markerState.dragState == com.google.maps.android.compose.DragState.END) {
                     markerPosition = markerState.position
@@ -474,7 +474,7 @@ fun MapsScreen() {
                     draggable = true, // Make the marker draggable
                     onClick = {
                         // Keep default behavior (show info window) but we can add custom logic here
-                        false 
+                        false
                     }
                 )
                 Circle(
@@ -486,7 +486,7 @@ fun MapsScreen() {
                 )
             }
         }
-        
+
         // Floating Action Button to set pin at center of screen (current camera target)
         Box(
              modifier = Modifier
@@ -542,16 +542,22 @@ fun MapsScreen() {
 
                     Button(
                         onClick = {
-                            markerPosition = cameraPositionState.position.target
-                            showRadiusAdjustment = false // Hide radius adjustment when setting new location
-                            Toast.makeText(context, "Location set!", Toast.LENGTH_SHORT).show()
+                            if (markerPosition == null) {
+                                markerPosition = cameraPositionState.position.target
+                                showRadiusAdjustment = false
+                                Toast.makeText(context, "Location set!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                markerPosition = null
+                                showRadiusAdjustment = false
+                                Toast.makeText(context, "Location removed!", Toast.LENGTH_SHORT).show()
+                            }
                         },
                         shape = RoundedCornerShape(50),
                         modifier = Modifier.height(56.dp)
                     ) {
-                         Icon(Icons.Default.LocationOn, contentDescription = "Set Location")
+                         Icon(if (markerPosition == null) Icons.Default.LocationOn else Icons.Default.Delete, contentDescription = if (markerPosition == null) "Set Location" else "Remove Location")
                          Spacer(Modifier.width(8.dp))
-                         Text(if (markerPosition == null) "Set Location" else "Move Location")
+                         Text(if (markerPosition == null) "Set Location" else "Remove Location")
                     }
                 }
             }
@@ -601,7 +607,7 @@ fun MapsScreen() {
                                         geocoder.getFromLocationName(query, 1)
                                     }
                                 }
-                                
+
                                 if (!addresses.isNullOrEmpty()) {
                                     val address = addresses[0]
                                     val latLng = LatLng(address.latitude, address.longitude)
