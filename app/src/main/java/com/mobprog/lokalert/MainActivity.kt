@@ -1,5 +1,7 @@
 package com.mobprog.lokalert
 
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.AlarmManager
@@ -85,7 +87,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -120,6 +121,8 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 data class Alarm(val time: String, val sound: String, val isEnabled: Boolean)
+
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -218,6 +221,16 @@ fun DefaultPreview() {
         LokAlertApp()
     }
 }
+
+// Add this to the bottom of your MainActivity.kt file, outside any class
+fun Modifier.bypassing(): Modifier = this.pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) {
+            awaitPointerEvent(pass = PointerEventPass.Initial)
+        }
+    }
+}
+
 
 @Composable
 fun TopBar(color: Color) {
@@ -538,7 +551,7 @@ fun MapsScreen() {
                     ) {
                          Icon(Icons.Default.LocationOn, contentDescription = "Set Location")
                          Spacer(Modifier.width(8.dp))
-                         Text("Set Location")
+                         Text(if (markerPosition == null) "Set Location" else "Move Location")
                     }
                 }
             }
@@ -760,6 +773,7 @@ fun EditAlarmDialog(alarm: Alarm, onDismiss: () -> Unit, onSave: (Alarm) -> Unit
                     val amPm = if (hourOfDay >= 12) "PM" else "AM"
                     val hour = if (hourOfDay == 0 || hourOfDay == 12) 12 else hourOfDay % 12
                     time = String.format(Locale.getDefault(), "%02d:%02d %s", hour, minute, amPm)
+                    showTimePicker = false
                 },
                 calendar.get(Calendar.HOUR_OF_DAY),
                 calendar.get(Calendar.MINUTE),
