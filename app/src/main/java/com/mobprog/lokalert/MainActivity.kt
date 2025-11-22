@@ -49,6 +49,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -68,12 +69,14 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -97,11 +100,13 @@ import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.CameraPositionState
+import com.google.maps.android.compose.Circle
 import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.MapProperties
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.rememberCameraPositionState
+import com.google.maps.android.compose.rememberMarkerState
 import com.mobprog.lokalert.ui.theme.LokAlertTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -351,6 +356,8 @@ fun MapsScreen() {
     }
 
     var markerPosition by remember { mutableStateOf<LatLng?>(null) }
+    var radius by remember { mutableFloatStateOf(100f) } // Default radius 100 meters
+    var showRadiusAdjustment by remember { mutableStateOf(false) }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -389,9 +396,27 @@ fun MapsScreen() {
             }
         ) {
             markerPosition?.let { position ->
+                val markerState = rememberMarkerState(position = position)
+                
+                // Sync changes from marker drag back to our state
+                if (markerState.dragState == com.google.maps.android.compose.DragState.END) {
+                    markerPosition = markerState.position
+                }
+
                 Marker(
-                    state = MarkerState(position = position),
-                    title = "Selected Location"
+                    state = markerState,
+                    title = "Selected Location",
+                    draggable = true,
+                    onClick = {
+                        false 
+                    }
+                )
+                Circle(
+                    center = markerState.position, // Use markerState position to follow drag
+                    radius = radius.toDouble(),
+                    strokeColor = Color(0xFF006DFF),
+                    strokeWidth = 2f,
+                    fillColor = Color(0x22006DFF)
                 )
             }
         }
@@ -411,17 +436,58 @@ fun MapsScreen() {
                      }
                  }
         ) {
-            Button(
-                onClick = {
-                    markerPosition = cameraPositionState.position.target
-                    Toast.makeText(context, "Location set!", Toast.LENGTH_SHORT).show()
-                },
-                shape = RoundedCornerShape(50),
-                modifier = Modifier.height(56.dp)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                 Icon(Icons.Default.LocationOn, contentDescription = "Set Location")
-                 Spacer(Modifier.width(8.dp))
-                 Text("Set Location")
+                if (showRadiusAdjustment) {
+                    Box(
+                        modifier = Modifier
+                            .width(200.dp)
+                            .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(12.dp))
+                            .padding(8.dp)
+                    ) {
+                         Column {
+                             Text("Adjust Radius: ${radius.toInt()}m", fontSize = 12.sp)
+                             Slider(
+                                 value = radius,
+                                 onValueChange = { radius = it },
+                                 valueRange = 50f..2000f,
+                                 steps = 19
+                             )
+                         }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (markerPosition != null) {
+                        Button(
+                            onClick = {
+                                 showRadiusAdjustment = !showRadiusAdjustment
+                            },
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.height(56.dp)
+                        ) {
+                             Icon(Icons.Default.Edit, contentDescription = "Adjust Radius")
+                             Spacer(Modifier.width(8.dp))
+                             Text("Adjust Radius")
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            markerPosition = cameraPositionState.position.target
+                            showRadiusAdjustment = false // Hide radius adjustment when setting new location
+                            Toast.makeText(context, "Location set!", Toast.LENGTH_SHORT).show()
+                        },
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.height(56.dp)
+                    ) {
+                         Icon(Icons.Default.LocationOn, contentDescription = "Set Location")
+                         Spacer(Modifier.width(8.dp))
+                         Text("Set Location")
+                    }
+                }
             }
         }
 
