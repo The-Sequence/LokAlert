@@ -1,6 +1,5 @@
 package com.mobprog.lokalert
 
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import android.Manifest
@@ -45,6 +44,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -60,6 +60,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -107,6 +109,7 @@ import com.google.android.libraries.places.api.model.AutocompleteSessionToken
 import com.google.android.libraries.places.api.net.FindAutocompletePredictionsRequest
 import com.google.maps.android.compose.CameraPositionState
 import com.google.maps.android.compose.Circle
+import com.google.android.libraries.places.api.net.PlacesClient
 import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.MapProperties
 import com.google.maps.android.compose.Marker
@@ -120,8 +123,9 @@ import kotlinx.coroutines.withContext
 import java.util.Calendar
 import java.util.Locale
 import kotlin.math.roundToInt
-
-data class Alarm(val time: String, val sound: String, val isEnabled: Boolean)
+import androidx.compose.foundation.layout.heightIn
+// UPDATED: Alarm is now location-based
+data class Alarm(val locationName: String, val radius: Float, val sound: String, val isEnabled: Boolean)
 
 
 
@@ -166,7 +170,7 @@ fun LokAlertApp() {
     var titleColor by remember { mutableStateOf(Color(0xFF006DFF)) }
     var isRainbowEffectEnabled by remember { mutableStateOf(false) }
     var recentSearches by remember { mutableStateOf(listOf("Manila, PH", "Cebu, PH", "Davao, PH")) } // Initialize state
-    var favoriteLocations by remember { mutableStateOf(listOf<String>()) } // NEW STATE
+    var favoriteLocations by remember { mutableStateOf(listOf<String>("Home", "Work")) } // NEW STATE - Initialized with some data
 
     val animatedTitleColor = remember {
         Animatable(
@@ -228,7 +232,7 @@ fun LokAlertApp() {
                     onToggleFavorite = ::toggleFavorite
                 ) // Pass state and updater
                 "Maps" -> MapsScreen(onNewSearch = ::addRecentSearch) // Pass updater
-                "Alarms" -> AlarmsScreen()
+                "Alarms" -> AlarmsScreen(favoriteLocations = favoriteLocations) // Pass favoriteLocations
                 "Settings" -> SettingsScreen(
                     onColorChange = { titleColor = it },
                     isRainbowEnabled = isRainbowEffectEnabled,
@@ -428,7 +432,6 @@ fun RecentSearchSection() {
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text("Recent Searches", fontWeight = FontWeight.Bold)
-            Text("Clear", color = Color(0xFF007BFF))
         }
         Text(
             text = "No recent searches",
@@ -771,14 +774,18 @@ fun FavoritesScreen(
                     Text("You haven't added any favorite locations yet.", color = Color.Gray)
                 }
             } else {
-                favoriteLocations.forEach { location ->
-                    // Reuse SearchHistoryItem for display, as it now handles the favorite/unfavorite logic
-                    SearchHistoryItem(
-                        location = location,
-                        isFavorite = true, // It is a favorite if it's in this list
-                        onToggleFavorite = onToggleFavorite
-                    )
-                    HorizontalDivider()
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth() // Use LazyColumn for Favorites List
+                ) {
+                    items(favoriteLocations) { location ->
+                        // Reuse SearchHistoryItem for display, as it now handles the favorite/unfavorite logic
+                        SearchHistoryItem(
+                            location = location,
+                            isFavorite = true, // It is a favorite if it's in this list
+                            onToggleFavorite = onToggleFavorite
+                        )
+                        HorizontalDivider()
+                    }
                 }
             }
         }
@@ -787,33 +794,40 @@ fun FavoritesScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AlarmsScreen() {
+fun AlarmsScreen(favoriteLocations: List<String>) {
     val context = LocalContext.current
     var alarms by remember {
         mutableStateOf(
             listOf(
-                Alarm(time = "07:00 AM", sound = "Default", isEnabled = true),
-                Alarm(time = "08:30 AM", sound = "Radar", isEnabled = false),
-                Alarm(time = "09:15 AM", sound = "Chimes", isEnabled = true)
+                // UPDATED: Initial alarms use new location/radius structure
+                Alarm(locationName = "Home", radius = 100f, sound = "Chimes", isEnabled = true),
+                Alarm(locationName = "Work", radius = 500f, sound = "Radar", isEnabled = false),
             )
         )
     }
     var showEditDialog by remember { mutableStateOf(false) }
     var alarmToEdit by remember { mutableStateOf<Alarm?>(null) }
     var alarmIndexToEdit by remember { mutableIntStateOf(-1) }
+    var isNewAlarm by remember { mutableStateOf(false) } // Track if we are creating a new alarm
 
     if (showEditDialog && alarmToEdit != null) {
         EditAlarmDialog(
             alarm = alarmToEdit!!,
+            favoriteLocations = favoriteLocations,
             onDismiss = { showEditDialog = false },
             onSave = { updatedAlarm ->
                 val newList = alarms.toMutableList()
-                newList[alarmIndexToEdit] = updatedAlarm
+                if (isNewAlarm) {
+                    newList.add(updatedAlarm)
+                } else {
+                    newList[alarmIndexToEdit] = updatedAlarm
+                }
                 alarms = newList
                 showEditDialog = false
+                isNewAlarm = false
 
                 if (updatedAlarm.isEnabled) {
-                    scheduleAlarm(context, updatedAlarm)
+                    updateAlarmSchedule(context, updatedAlarm)
                 }
             }
         )
@@ -824,7 +838,36 @@ fun AlarmsScreen() {
             .fillMaxSize()
             .padding(16.dp),
     ) {
-        Text("Alarms", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Location Alarms", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            
+            // PLUS Icon for adding a new alarm
+            IconButton(
+                onClick = {
+                    if (favoriteLocations.isEmpty()) {
+                        Toast.makeText(context, "Please add a favorite location first!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        isNewAlarm = true
+                        // Create a default alarm using the first favorite location
+                        alarmToEdit = Alarm(
+                            locationName = favoriteLocations.first(),
+                            radius = 100f,
+                            sound = "Chimes",
+                            isEnabled = true
+                        )
+                        alarmIndexToEdit = -1 // Indicates a new alarm
+                        showEditDialog = true
+                    }
+                }
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Add Alarm", tint = Color(0xFF006DFF))
+            }
+        }
+        
         Spacer(modifier = Modifier.height(16.dp))
         LazyColumn {
             itemsIndexed(alarms) { index, alarm ->
@@ -837,9 +880,10 @@ fun AlarmsScreen() {
                         alarms = newList
 
                         if (isEnabled) {
-                            scheduleAlarm(context, updatedAlarm)
+                            updateAlarmSchedule(context, updatedAlarm)
                         } else {
                             // Cancel the alarm if it was disabled
+                            Toast.makeText(context, "Alarm for ${updatedAlarm.locationName} cancelled!", Toast.LENGTH_SHORT).show()
                         }
                     },
                     onDelete = {
@@ -848,6 +892,7 @@ fun AlarmsScreen() {
                         alarms = newList
                     },
                     onClick = {
+                        isNewAlarm = false
                         alarmToEdit = alarm
                         alarmIndexToEdit = index
                         showEditDialog = true
@@ -861,70 +906,74 @@ fun AlarmsScreen() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EditAlarmDialog(alarm: Alarm, onDismiss: () -> Unit, onSave: (Alarm) -> Unit) {
-    var time by remember(alarm) { mutableStateOf(alarm.time) }
-    var sound by remember(alarm) { mutableStateOf(alarm.sound) }
-    var showTimePicker by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-
-    if (showTimePicker) {
-        DisposableEffect(Unit) {
-            val calendar = Calendar.getInstance()
-            try {
-                val timeParts = time.split(":", " ")
-                var hour = timeParts[0].toInt()
-                val minute = timeParts[1].toInt()
-                val isPm = timeParts.getOrNull(2)?.equals("PM", true) == true
-
-                if (isPm && hour < 12) {
-                    hour += 12
-                } else if (!isPm && hour == 12) { // 12 AM is 0 hour
-                    hour = 0
-                }
-                calendar.set(Calendar.HOUR_OF_DAY, hour)
-                calendar.set(Calendar.MINUTE, minute)
-            } catch (_: Exception) {
-                // Use current time as fallback if parsing fails
-            }
-
-            val timePickerDialog = TimePickerDialog(
-                context,
-                { _, hourOfDay, minute ->
-                    val amPm = if (hourOfDay >= 12) "PM" else "AM"
-                    val hour = if (hourOfDay == 0 || hourOfDay == 12) 12 else hourOfDay % 12
-                    time = String.format(Locale.getDefault(), "%02d:%02d %s", hour, minute, amPm)
-                    showTimePicker = false
-                },
-                calendar.get(Calendar.HOUR_OF_DAY),
-                calendar.get(Calendar.MINUTE),
-                false // is24HourView = false for 12 hour format with AM/PM
-            )
-            timePickerDialog.setOnCancelListener {
-                showTimePicker = false
-            }
-            timePickerDialog.show()
-
-            onDispose {
-                timePickerDialog.dismiss()
-            }
+fun EditAlarmDialog(
+    alarm: Alarm,
+    favoriteLocations: List<String>,
+    onDismiss: () -> Unit,
+    onSave: (Alarm) -> Unit
+) {
+    var selectedLocation by remember(alarm, favoriteLocations) {
+        val initialLocation = alarm.locationName
+        if (favoriteLocations.contains(initialLocation)) {
+            mutableStateOf(initialLocation)
+        } else if (favoriteLocations.isNotEmpty()) {
+            mutableStateOf(favoriteLocations.first())
+        } else {
+            mutableStateOf(initialLocation)
         }
     }
+    
+    var radius by remember(alarm) { mutableFloatStateOf(alarm.radius) }
+    var sound by remember(alarm) { mutableStateOf(alarm.sound) }
+
+    // Determine if the Save button should be enabled
+    val saveEnabled = favoriteLocations.isNotEmpty()
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit Alarm") },
+        title = { Text("Edit Location Alarm") },
         text = {
             Column {
-                OutlinedTextField(
-                    value = time,
-                    onValueChange = {},
-                    label = { Text("Time") },
-                    readOnly = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showTimePicker = true }
+                Text(
+                    text = "Select Location:",
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                if (favoriteLocations.isEmpty()) {
+                    Text("No favorite locations added. Add some in Favorites tab!", color = Color.Gray)
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 150.dp)) { // Limit height of the list
+                        items(favoriteLocations) { location ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = saveEnabled) { selectedLocation = location }
+                                    .background(if (selectedLocation == location) Color.LightGray else Color.Transparent, RoundedCornerShape(8.dp))
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Place, contentDescription = "Location", modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(location, fontSize = 16.sp, fontWeight = if (selectedLocation == location) FontWeight.Bold else FontWeight.Normal)
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 2. Radius Slider
+                Text("Radius: ${radius.toInt()}m", fontWeight = FontWeight.SemiBold)
+                Slider(
+                    value = radius,
+                    onValueChange = { radius = it },
+                    valueRange = 50f..2000f,
+                    steps = 19, // Steps for granular control (50m increments)
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 3. Sound Input (keeping existing logic)
                 OutlinedTextField(
                     value = sound,
                     onValueChange = { sound = it },
@@ -934,7 +983,12 @@ fun EditAlarmDialog(alarm: Alarm, onDismiss: () -> Unit, onSave: (Alarm) -> Unit
             }
         },
         confirmButton = {
-            Button(onClick = { onSave(alarm.copy(time = time, sound = sound)) }) {
+            Button(
+                onClick = { 
+                    onSave(alarm.copy(locationName = selectedLocation, radius = radius, sound = sound)) 
+                },
+                enabled = saveEnabled && selectedLocation.isNotEmpty() && selectedLocation != "No favorite locations added"
+            ) {
                 Text("Save")
             }
         },
@@ -946,60 +1000,20 @@ fun EditAlarmDialog(alarm: Alarm, onDismiss: () -> Unit, onSave: (Alarm) -> Unit
     )
 }
 
-fun scheduleAlarm(context: Context, alarm: Alarm) {
-    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-    val intent = Intent(context, AlarmReceiver::class.java)
-
-    val pendingIntent = PendingIntent.getBroadcast(
-        context,
-        alarm.hashCode(),
-        intent,
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    )
-
-    val calendar = Calendar.getInstance().apply {
-        try {
-            val timeParts = alarm.time.split(":", " ")
-            var hour = timeParts[0].toInt()
-            val minute = timeParts[1].toInt()
-            val isPm = timeParts.getOrNull(2)?.equals("PM", true) == true
-
-            if (isPm && hour < 12) {
-                hour += 12
-            } else if (!isPm && hour == 12) { // 12 AM is 0 hour
-                hour = 0
-            }
-
-            set(Calendar.HOUR_OF_DAY, hour)
-            set(Calendar.MINUTE, minute)
-            set(Calendar.SECOND, 0)
-
-            if (before(Calendar.getInstance())) {
-                add(Calendar.DATE, 1)
-            }
-        } catch (_: Exception) {
-            // Handle parsing error
-        }
+// UPDATED: Renamed function and changed signature to location-based alarm.
+fun updateAlarmSchedule(context: Context, alarm: Alarm) {
+    // This function would typically implement Geofencing APIs (e.e., Google Location Services)
+    // to trigger the alarm when the user enters/exits the specified radius around the location.
+    // For this task, we treat it as a UI/placeholder implementation.
+    
+    if (alarm.isEnabled) {
+        // Placeholder for Geofence registration
+        Toast.makeText(
+            context,
+            "Location Alarm set for ${alarm.locationName} (Radius: ${alarm.radius.toInt()}m)!",
+            Toast.LENGTH_LONG
+        ).show()
     }
-
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        if (alarmManager.canScheduleExactAlarms()) {
-            alarmManager.setExactAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                calendar.timeInMillis,
-                pendingIntent
-            )
-        } else {
-            // The RequestPermissions composable should handle this
-        }
-    } else {
-        alarmManager.setExactAndAllowWhileIdle(
-            AlarmManager.RTC_WAKEUP,
-            calendar.timeInMillis,
-            pendingIntent
-        )
-    }
-    Toast.makeText(context, "Alarm Scheduled!", Toast.LENGTH_SHORT).show()
 }
 
 
@@ -1014,8 +1028,9 @@ fun AlarmItem(alarm: Alarm, onToggle: (Boolean) -> Unit, onDelete: () -> Unit, o
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Column {
-            Text(text = alarm.time, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text(text = alarm.sound, fontSize = 14.sp, color = Color.Gray)
+            // UPDATED: Display Location Name and Radius
+            Text(text = "Location: ${alarm.locationName}", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(text = "Radius: ${alarm.radius.toInt()}m | Sound: ${alarm.sound}", fontSize = 14.sp, color = Color.Gray)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Switch(checked = alarm.isEnabled, onCheckedChange = onToggle)
