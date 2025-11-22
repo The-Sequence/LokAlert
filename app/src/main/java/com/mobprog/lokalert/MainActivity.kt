@@ -1,16 +1,26 @@
 package com.mobprog.lokalert
 
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.app.TimePickerDialog
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.Address
+import android.location.Geocoder
+import android.location.Location
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector4D
 import androidx.compose.animation.core.LinearEasing
@@ -18,6 +28,7 @@ import androidx.compose.animation.core.TwoWayConverter
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,26 +37,31 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
@@ -54,22 +70,45 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.maps.android.compose.CameraPositionState
 import com.google.maps.android.compose.GoogleMap
+import com.google.maps.android.compose.MapProperties
+import com.google.maps.android.compose.Marker
+import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.mobprog.lokalert.ui.theme.LokAlertTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Calendar
+import java.util.Locale
+import kotlin.math.roundToInt
 
 data class Alarm(val time: String, val sound: String, val isEnabled: Boolean)
 
@@ -147,7 +186,6 @@ fun LokAlertApp() {
                 "Maps" -> MapsScreen()
                 "Alarms" -> AlarmsScreen()
                 "Settings" -> SettingsScreen(
-                    color = titleColor,
                     onColorChange = { titleColor = it },
                     isRainbowEnabled = isRainbowEffectEnabled,
                     onRainbowToggle = { isRainbowEffectEnabled = it }
@@ -164,6 +202,16 @@ fun DefaultPreview() {
         LokAlertApp()
     }
 }
+
+// Add this to the bottom of your MainActivity.kt file, outside any class
+fun Modifier.bypassing(): Modifier = this.pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) {
+            awaitPointerEvent(pass = PointerEventPass.Initial)
+        }
+    }
+}
+
 
 @Composable
 fun TopBar(color: Color) {
@@ -199,7 +247,10 @@ fun SearchScreen() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SearchSection() {
+fun SearchSection(
+    onPlacePinClick: (() -> Unit)? = null,
+    onSearch: ((String) -> Unit)? = null
+) {
     var searchText by remember { mutableStateOf("") }
 
     Column(
@@ -212,9 +263,21 @@ fun SearchSection() {
             onValueChange = { searchText = it },
             modifier = Modifier.fillMaxWidth(),
             placeholder = { Text("Search locations...") },
-            trailingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            trailingIcon = { 
+                Icon(
+                    Icons.Default.Search, 
+                    contentDescription = null,
+                    modifier = Modifier.clickable { onSearch?.invoke(searchText) }
+                ) 
+            },
             shape = RoundedCornerShape(30.dp),
-            singleLine = true
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(
+                onSearch = {
+                    onSearch?.invoke(searchText)
+                }
+            )
         )
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -228,7 +291,7 @@ fun SearchSection() {
         Spacer(modifier = Modifier.height(6.dp))
 
         Button(
-            onClick = { /* Place pin logic */ },
+            onClick = { onPlacePinClick?.invoke() },
             modifier = Modifier.align(Alignment.CenterHorizontally),
             shape = RoundedCornerShape(30.dp)
         ) {
@@ -276,15 +339,156 @@ fun RecentSearchSection() {
     }
 }
 
+@SuppressLint("MissingPermission")
 @Composable
 fun MapsScreen() {
+    val context = LocalContext.current
+    var hasLocationPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    var markerPosition by remember { mutableStateOf<LatLng?>(null) }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        hasLocationPermission = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+    }
+
+    LaunchedEffect(Unit) {
+        if (!hasLocationPermission) {
+            launcher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        }
+    }
+
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(LatLng(1.35, 103.87), 10f)
     }
-    GoogleMap(
-        modifier = Modifier.fillMaxSize(),
-        cameraPositionState = cameraPositionState
-    )
+    val coroutineScope = rememberCoroutineScope()
+    
+    var offsetX by remember { mutableStateOf(0f) }
+    var offsetY by remember { mutableStateOf(0f) }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        GoogleMap(
+            modifier = Modifier.fillMaxSize(),
+            cameraPositionState = cameraPositionState,
+            properties = MapProperties(isMyLocationEnabled = hasLocationPermission),
+            onMapClick = { latLng ->
+                 // Optional: Click map to set pin as well
+                 // markerPosition = latLng
+            }
+        ) {
+            markerPosition?.let { position ->
+                Marker(
+                    state = MarkerState(position = position),
+                    title = "Selected Location"
+                )
+            }
+        }
+        
+        // Floating Action Button to set pin at center of screen (current camera target)
+        Box(
+             modifier = Modifier
+                 .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
+                 .align(Alignment.BottomEnd)
+                 .padding(16.dp)
+                 .padding(bottom = 80.dp) // Add padding to avoid overlap with BottomNavBar
+                 .pointerInput(Unit) {
+                     detectDragGestures { change, dragAmount ->
+                         change.consume()
+                         offsetX += dragAmount.x
+                         offsetY += dragAmount.y
+                     }
+                 }
+        ) {
+            Button(
+                onClick = {
+                    markerPosition = cameraPositionState.position.target
+                    Toast.makeText(context, "Location set!", Toast.LENGTH_SHORT).show()
+                },
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.height(56.dp)
+            ) {
+                 Icon(Icons.Default.LocationOn, contentDescription = "Set Location")
+                 Spacer(Modifier.width(8.dp))
+                 Text("Set Location")
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .background(Color.White.copy(alpha = 0.9f))
+                .fillMaxWidth()
+        ) {
+            SearchSection(
+                onPlacePinClick = {
+                    if (hasLocationPermission) {
+                        val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+                        fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
+                            location?.let {
+                                val latLng = LatLng(it.latitude, it.longitude)
+                                coroutineScope.launch {
+                                    cameraPositionState.animate(
+                                        CameraUpdateFactory.newLatLngZoom(latLng, 15f)
+                                    )
+                                }
+                            } ?: run {
+                                Toast.makeText(context, "Unable to get current location", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        launcher.launch(
+                            arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            )
+                        )
+                    }
+                },
+                onSearch = { query ->
+                    if (query.isNotBlank()) {
+                        coroutineScope.launch {
+                            try {
+                                val geocoder = Geocoder(context)
+                                val addresses = withContext(Dispatchers.IO) {
+                                    @Suppress("DEPRECATION")
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        geocoder.getFromLocationName(query, 1)
+                                    } else {
+                                        geocoder.getFromLocationName(query, 1)
+                                    }
+                                }
+                                
+                                if (!addresses.isNullOrEmpty()) {
+                                    val address = addresses[0]
+                                    val latLng = LatLng(address.latitude, address.longitude)
+                                    cameraPositionState.animate(
+                                        CameraUpdateFactory.newLatLngZoom(latLng, 15f)
+                                    )
+                                } else {
+                                    Toast.makeText(context, "Location not found", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                Toast.makeText(context, "Error searching location", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }
+            )
+        }
+    }
 }
 
 @Composable
@@ -316,7 +520,7 @@ fun AlarmsScreen() {
     }
     var showEditDialog by remember { mutableStateOf(false) }
     var alarmToEdit by remember { mutableStateOf<Alarm?>(null) }
-    var alarmIndexToEdit by remember { mutableStateOf(-1) }
+    var alarmIndexToEdit by remember { mutableIntStateOf(-1) }
 
     if (showEditDialog && alarmToEdit != null) {
         EditAlarmDialog(
@@ -369,7 +573,7 @@ fun AlarmsScreen() {
                         showEditDialog = true
                     }
                 )
-                Divider()
+                HorizontalDivider()
             }
         }
     }
@@ -399,7 +603,7 @@ fun EditAlarmDialog(alarm: Alarm, onDismiss: () -> Unit, onSave: (Alarm) -> Unit
                 }
                 calendar.set(Calendar.HOUR_OF_DAY, hour)
                 calendar.set(Calendar.MINUTE, minute)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // Use current time as fallback if parsing fails
             }
 
@@ -408,7 +612,7 @@ fun EditAlarmDialog(alarm: Alarm, onDismiss: () -> Unit, onSave: (Alarm) -> Unit
                 { _, hourOfDay, minute ->
                     val amPm = if (hourOfDay >= 12) "PM" else "AM"
                     val hour = if (hourOfDay == 0 || hourOfDay == 12) 12 else hourOfDay % 12
-                    time = String.format("%02d:%02d %s", hour, minute, amPm)
+                    time = String.format(Locale.getDefault(), "%02d:%02d %s", hour, minute, amPm)
                     showTimePicker = false
                 },
                 calendar.get(Calendar.HOUR_OF_DAY),
@@ -493,7 +697,7 @@ fun scheduleAlarm(context: Context, alarm: Alarm) {
             if (before(Calendar.getInstance())) {
                 add(Calendar.DATE, 1)
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             // Handle parsing error
         }
     }
@@ -544,7 +748,7 @@ fun AlarmItem(alarm: Alarm, onToggle: (Boolean) -> Unit, onDelete: () -> Unit, o
 }
 
 @Composable
-fun SettingsScreen(color: Color, onColorChange: (Color) -> Unit, isRainbowEnabled: Boolean, onRainbowToggle: (Boolean) -> Unit) {
+fun SettingsScreen(onColorChange: (Color) -> Unit, isRainbowEnabled: Boolean, onRainbowToggle: (Boolean) -> Unit) {
     var showColorOptions by remember { mutableStateOf(false) }
     val colorOptions = mapOf(
         "Red" to Color.Red,
@@ -570,7 +774,7 @@ fun SettingsScreen(color: Color, onColorChange: (Color) -> Unit, isRainbowEnable
             Switch(checked = isRainbowEnabled, onCheckedChange = onRainbowToggle)
         }
 
-        Divider()
+        HorizontalDivider()
 
         Column(modifier = Modifier.clickable(enabled = !isRainbowEnabled) { showColorOptions = !showColorOptions }) {
             Row(
