@@ -1,5 +1,6 @@
 package com.mobprog.lokalert
 
+
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import android.Manifest
@@ -124,9 +125,15 @@ import java.util.Calendar
 import java.util.Locale
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.heightIn
-// UPDATED: Alarm is now location-based
-data class Alarm(val locationName: String, val radius: Float, val sound: String, val isEnabled: Boolean)
+import androidx.compose.material.icons.filled.Notifications
 
+
+data class Alarm(
+    val locationName: String,
+    val radius: Float,
+    val sound: String,
+    val isEnabled: Boolean
+)
 
 
 class MainActivity : ComponentActivity() {
@@ -135,7 +142,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // Initialize Places API
         if (!Places.isInitialized()) {
-            val apiKey = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA).metaData?.getString("com.google.android.geo.API_KEY")
+            val apiKey = packageManager.getApplicationInfo(
+                packageName,
+                PackageManager.GET_META_DATA
+            ).metaData?.getString("com.google.android.geo.API_KEY")
             if (apiKey != null) {
                 Places.initialize(applicationContext, apiKey)
             }
@@ -169,14 +179,36 @@ fun LokAlertApp() {
     var currentScreen by remember { mutableStateOf("Maps") }
     var titleColor by remember { mutableStateOf(Color(0xFF006DFF)) }
     var isRainbowEffectEnabled by remember { mutableStateOf(false) }
-    var recentSearches by remember { mutableStateOf(listOf("Manila, PH", "Cebu, PH", "Davao, PH")) } // Initialize state
-    var favoriteLocations by remember { mutableStateOf(listOf<String>("Home", "Work")) } // NEW STATE - Initialized with some data
+    var recentSearches by remember {
+        mutableStateOf(
+            listOf(
+                "Manila, PH",
+                "Cebu, PH",
+                "Davao, PH"
+            )
+        )
+    } // Initialize state
+    var favoriteLocations by remember {
+        mutableStateOf(
+            listOf<String>(
+                "Home",
+                "Work"
+            )
+        )
+    }
 
     val animatedTitleColor = remember {
         Animatable(
             titleColor,
             TwoWayConverter(
-                convertToVector = { color: Color -> AnimationVector4D(color.red, color.green, color.blue, color.alpha) },
+                convertToVector = { color: Color ->
+                    AnimationVector4D(
+                        color.red,
+                        color.green,
+                        color.blue,
+                        color.alpha
+                    )
+                },
                 convertFromVector = { vector -> Color(vector.v1, vector.v2, vector.v3, vector.v4) }
             )
         )
@@ -185,7 +217,14 @@ fun LokAlertApp() {
     LaunchedEffect(isRainbowEffectEnabled, titleColor) {
         if (isRainbowEffectEnabled) {
             launch {
-                val rainbowColors = listOf(Color.Red, Color.Green, Color.Blue, Color.Magenta, Color.Yellow, Color.Red)
+                val rainbowColors = listOf(
+                    Color.Red,
+                    Color.Green,
+                    Color.Blue,
+                    Color.Magenta,
+                    Color.Yellow,
+                    Color.Red
+                )
                 while (true) {
                     for (color in rainbowColors) {
                         animatedTitleColor.animateTo(
@@ -209,7 +248,7 @@ fun LokAlertApp() {
             }
         }
     }
-    
+
     fun toggleFavorite(location: String) { // NEW FUNCTION
         favoriteLocations = if (favoriteLocations.contains(location)) {
             favoriteLocations.filter { it != location }
@@ -285,413 +324,6 @@ fun TopBar(color: Color) {
 }
 
 @Composable
-fun SearchScreen() {
-    Column {
-        SearchSection()
-        MapSection()
-        RecentSearchSection()
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SearchSection(
-    onPlacePinClick: (() -> Unit)? = null,
-    onSearch: ((String) -> Unit)? = null,
-    onSuggestionClick: ((String) -> Unit)? = null
-) {
-    var searchText by remember { mutableStateOf("") }
-    var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
-    var expanded by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    
-    // Only create the client if Places is initialized
-    val placesClient = remember {
-        if (Places.isInitialized()) Places.createClient(context) else null
-    }
-    val token = remember { AutocompleteSessionToken.newInstance() }
-
-    LaunchedEffect(searchText) {
-        if (searchText.isNotEmpty() && placesClient != null) {
-            val request = FindAutocompletePredictionsRequest.builder()
-                .setCountries("PH")
-                .setSessionToken(token)
-                .setQuery(searchText)
-                .build()
-
-            placesClient.findAutocompletePredictions(request)
-                .addOnSuccessListener { response ->
-                    suggestions = response.autocompletePredictions.map { it.getFullText(null).toString() }
-                    expanded = suggestions.isNotEmpty()
-                }
-                .addOnFailureListener { 
-                    suggestions = emptyList()
-                    expanded = false
-                }
-        } else {
-            suggestions = emptyList()
-            expanded = false
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .padding(12.dp)
-            .fillMaxWidth()
-    ) {
-        OutlinedTextField(
-            value = searchText,
-            onValueChange = { searchText = it },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
-            placeholder = { Text("Search locations...", fontSize = 14.sp) },
-            trailingIcon = { 
-                Icon(
-                    Icons.Default.Search, 
-                    contentDescription = null,
-                    modifier = Modifier.clickable { onSearch?.invoke(searchText) }
-                ) 
-            },
-            shape = RoundedCornerShape(30.dp),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(
-                onSearch = {
-                    onSearch?.invoke(searchText)
-                    expanded = false
-                }
-            )
-        )
-        
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier.fillMaxWidth(0.9f) // Adjust width as needed
-        ) {
-            suggestions.forEach { suggestion ->
-                DropdownMenuItem(
-                    text = { Text(text = suggestion) },
-                    onClick = {
-                        searchText = suggestion
-                        expanded = false
-                        onSuggestionClick?.invoke(suggestion)
-                    }
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        Text(
-            text = "OR",
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-            color = Color.Gray
-        )
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Button(
-            onClick = { onPlacePinClick?.invoke() },
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .height(40.dp),
-            shape = RoundedCornerShape(30.dp)
-        ) {
-            Icon(Icons.Default.Place, contentDescription = null)
-            Spacer(Modifier.width(6.dp))
-            Text("Click to Place Pin on Map")
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-    }
-}
-
-@Composable
-fun MapSection() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(260.dp)
-            .background(Color(0xFF1C2A38), RoundedCornerShape(8.dp)),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            "Map Placeholder",
-            color = Color.White,
-            fontSize = 16.sp
-        )
-    }
-}
-
-@Composable
-fun RecentSearchSection() {
-    Column(modifier = Modifier.padding(16.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("Recent Searches", fontWeight = FontWeight.Bold)
-        }
-        Text(
-            text = "No recent searches",
-            color = Color.Gray,
-            modifier = Modifier.padding(top = 4.dp)
-        )
-    }
-}
-
-@SuppressLint("MissingPermission")
-@Composable
-fun MapsScreen(onNewSearch: (String) -> Unit) {
-    val context = LocalContext.current
-    var hasLocationPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        )
-    }
-
-    var markerPosition by remember { mutableStateOf<LatLng?>(null) }
-    var radius by remember { mutableFloatStateOf(100f) } // Default radius 100 meters
-    var showRadiusAdjustment by remember { mutableStateOf(false) }
-
-    val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        hasLocationPermission = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
-                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-    }
-
-    LaunchedEffect(Unit) {
-        if (!hasLocationPermission) {
-            launcher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                )
-            )
-        }
-    }
-
-    val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(LatLng(1.35, 103.87), 10f)
-    }
-    val coroutineScope = rememberCoroutineScope()
-
-    var offsetX by remember { mutableFloatStateOf(0f) }
-    var offsetY by remember { mutableFloatStateOf(0f) }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        GoogleMap(
-            modifier = Modifier.fillMaxSize(),
-            cameraPositionState = cameraPositionState,
-            properties = MapProperties(isMyLocationEnabled = hasLocationPermission),
-            onMapClick = {
-                 // Optional: Click map to set pin as well
-                 // markerPosition = latLng
-            }
-        ) {
-            markerPosition?.let { position ->
-                val markerState = rememberMarkerState(position = position)
-
-                // Sync changes from marker drag back to our state
-                if (markerState.dragState == com.google.maps.android.compose.DragState.END) {
-                    markerPosition = markerState.position
-                }
-
-                Marker(
-                    state = markerState,
-                    title = "Selected Location",
-                    draggable = true, // Make the marker draggable
-                    onClick = {
-                        // Keep default behavior (show info window) but we can add custom logic here
-                        false
-                    }
-                )
-                Circle(
-                    center = markerState.position, // Use markerState position to follow drag
-                    radius = radius.toDouble(),
-                    strokeColor = Color(0xFF006DFF),
-                    strokeWidth = 2f,
-                    fillColor = Color(0x22006DFF)
-                )
-            }
-        }
-
-        // Floating Action Button to set pin at center of screen (current camera target)
-        Box(
-             modifier = Modifier
-                 .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
-                 .align(Alignment.BottomEnd)
-                 .padding(16.dp)
-                 .padding(bottom = 80.dp) // Add padding to avoid overlap with BottomNavBar
-                 .pointerInput(Unit) {
-                     detectDragGestures { change, dragAmount ->
-                         change.consume()
-                         offsetX += dragAmount.x
-                         offsetY += dragAmount.y
-                     }
-                 }
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                if (showRadiusAdjustment) {
-                    Box(
-                        modifier = Modifier
-                            .width(200.dp)
-                            .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(12.dp))
-                            .padding(8.dp)
-                    ) {
-                         Column {
-                             Text("Adjust Radius: ${radius.toInt()}m", fontSize = 12.sp)
-                             Slider(
-                                 value = radius,
-                                 onValueChange = { radius = it },
-                                 valueRange = 50f..2000f,
-                                 steps = 19
-                             )
-                         }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (markerPosition != null) {
-                        Button(
-                            onClick = {
-                                 showRadiusAdjustment = !showRadiusAdjustment
-                            },
-                            shape = RoundedCornerShape(50),
-                            modifier = Modifier.height(56.dp)
-                        ) {
-                             Icon(Icons.Default.Edit, contentDescription = "Adjust Radius")
-                             Spacer(Modifier.width(8.dp))
-                             Text("Adjust Radius")
-                        }
-                    }
-
-                    Button(
-                        onClick = {
-                            if (markerPosition == null) {
-                                markerPosition = cameraPositionState.position.target
-                                showRadiusAdjustment = false
-                                Toast.makeText(context, "Location set!", Toast.LENGTH_SHORT).show()
-                            } else {
-                                markerPosition = null
-                                showRadiusAdjustment = false
-                                Toast.makeText(context, "Location removed!", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        shape = RoundedCornerShape(50),
-                        modifier = Modifier.height(56.dp)
-                    ) {
-                         Icon(if (markerPosition == null) Icons.Default.LocationOn else Icons.Default.Delete, contentDescription = if (markerPosition == null) "Set Location" else "Remove Location")
-                         Spacer(Modifier.width(8.dp))
-                         Text(if (markerPosition == null) "Set Location" else "Remove Location")
-                    }
-                }
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .background(Color(0xFFF0F0F0))
-                .fillMaxWidth()
-        ) {
-            SearchSection(
-                onPlacePinClick = {
-                    if (hasLocationPermission) {
-                        val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-                        fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
-                            location?.let {
-                                val latLng = LatLng(it.latitude, it.longitude)
-                                coroutineScope.launch {
-                                    cameraPositionState.animate(
-                                        CameraUpdateFactory.newLatLngZoom(latLng, 15f)
-                                    )
-                                }
-                            } ?: run {
-                                Toast.makeText(context, "Unable to get current location", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    } else {
-                        launcher.launch(
-                            arrayOf(
-                                Manifest.permission.ACCESS_FINE_LOCATION,
-                                Manifest.permission.ACCESS_COARSE_LOCATION
-                            )
-                        )
-                    }
-                },
-                onSearch = { query ->
-                    if (query.isNotBlank()) {
-                        onNewSearch(query) // Record search on manual search
-                        coroutineScope.launch {
-                            try {
-                                val geocoder = Geocoder(context)
-                                val addresses = withContext(Dispatchers.IO) {
-                                    @Suppress("DEPRECATION")
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                        geocoder.getFromLocationName(query, 1)
-                                    } else {
-                                        geocoder.getFromLocationName(query, 1)
-                                    }
-                                }
-
-                                if (!addresses.isNullOrEmpty()) {
-                                    val address = addresses[0]
-                                    val latLng = LatLng(address.latitude, address.longitude)
-                                    cameraPositionState.animate(
-                                        CameraUpdateFactory.newLatLngZoom(latLng, 15f)
-                                    )
-                                } else {
-                                    Toast.makeText(context, "Location not found", Toast.LENGTH_SHORT).show()
-                                }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                                Toast.makeText(context, "Error searching location", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }
-                },
-                onSuggestionClick = { suggestion ->
-                    onNewSearch(suggestion) // Record search on suggestion click
-                    coroutineScope.launch {
-                        try {
-                            val geocoder = Geocoder(context)
-                            val addresses = withContext(Dispatchers.IO) {
-                                @Suppress("DEPRECATION")
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    geocoder.getFromLocationName(suggestion, 1)
-                                } else {
-                                    geocoder.getFromLocationName(suggestion, 1)
-                                }
-                            }
-
-                            if (!addresses.isNullOrEmpty()) {
-                                val address = addresses[0]
-                                val latLng = LatLng(address.latitude, address.longitude)
-                                cameraPositionState.animate(
-                                    CameraUpdateFactory.newLatLngZoom(latLng, 15f)
-                                )
-                            } else {
-                                Toast.makeText(context, "Location not found", Toast.LENGTH_SHORT).show()
-                            }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                            Toast.makeText(context, "Error searching location", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
-            )
-        }
-    }
-}
-
-@Composable
 fun SearchHistoryItem(location: String, isFavorite: Boolean, onToggleFavorite: (String) -> Unit) {
     Row(
         modifier = Modifier
@@ -702,14 +334,18 @@ fun SearchHistoryItem(location: String, isFavorite: Boolean, onToggleFavorite: (
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Place, contentDescription = "Location", modifier = Modifier.size(24.dp))
+            Icon(
+                Icons.Default.Place,
+                contentDescription = "Location",
+                modifier = Modifier.size(24.dp)
+            )
             Spacer(modifier = Modifier.width(12.dp))
             Text(location, fontSize = 16.sp)
         }
-        
+
         IconButton(onClick = { onToggleFavorite(location) }) {
             Icon(
-                Icons.Default.Favorite, 
+                Icons.Default.Favorite,
                 contentDescription = if (isFavorite) "Remove from Favorites" else "Add to Favorites",
                 tint = if (isFavorite) Color.Red else Color.Gray
             )
@@ -729,7 +365,12 @@ fun FavoritesScreen(
             .padding(horizontal = 16.dp), // Adjust padding for a cleaner look
     ) {
         // Main title for the screen
-        Text("My Locations", fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp, bottom = 16.dp))
+        Text(
+            "My Locations",
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 16.dp, bottom = 16.dp)
+        )
 
         // First Section/Row: Search History
         Column(
@@ -737,7 +378,12 @@ fun FavoritesScreen(
                 .fillMaxWidth()
                 .padding(vertical = 8.dp)
         ) {
-            Text("Recent Search History", fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = Color.Gray)
+            Text(
+                "Recent Search History",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 18.sp,
+                color = Color.Gray
+            )
             Spacer(modifier = Modifier.height(8.dp))
 
             // Scrollable and constrained history list using LazyColumn
@@ -768,7 +414,12 @@ fun FavoritesScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.Start // Align text to start for better layout when list is populated
         ) {
-            Text("Favorite Locations", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 16.dp))
+            Text(
+                "Favorite Locations",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
             if (favoriteLocations.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text("You haven't added any favorite locations yet.", color = Color.Gray)
@@ -792,258 +443,12 @@ fun FavoritesScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AlarmsScreen(favoriteLocations: List<String>) {
-    val context = LocalContext.current
-    var alarms by remember {
-        mutableStateOf(
-            listOf(
-                // UPDATED: Initial alarms use new location/radius structure
-                Alarm(locationName = "Home", radius = 100f, sound = "Chimes", isEnabled = true),
-                Alarm(locationName = "Work", radius = 500f, sound = "Radar", isEnabled = false),
-            )
-        )
-    }
-    var showEditDialog by remember { mutableStateOf(false) }
-    var alarmToEdit by remember { mutableStateOf<Alarm?>(null) }
-    var alarmIndexToEdit by remember { mutableIntStateOf(-1) }
-    var isNewAlarm by remember { mutableStateOf(false) } // Track if we are creating a new alarm
-
-    if (showEditDialog && alarmToEdit != null) {
-        EditAlarmDialog(
-            alarm = alarmToEdit!!,
-            favoriteLocations = favoriteLocations,
-            onDismiss = { showEditDialog = false },
-            onSave = { updatedAlarm ->
-                val newList = alarms.toMutableList()
-                if (isNewAlarm) {
-                    newList.add(updatedAlarm)
-                } else {
-                    newList[alarmIndexToEdit] = updatedAlarm
-                }
-                alarms = newList
-                showEditDialog = false
-                isNewAlarm = false
-
-                if (updatedAlarm.isEnabled) {
-                    updateAlarmSchedule(context, updatedAlarm)
-                }
-            }
-        )
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Location Alarms", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            
-            // PLUS Icon for adding a new alarm
-            IconButton(
-                onClick = {
-                    if (favoriteLocations.isEmpty()) {
-                        Toast.makeText(context, "Please add a favorite location first!", Toast.LENGTH_SHORT).show()
-                    } else {
-                        isNewAlarm = true
-                        // Create a default alarm using the first favorite location
-                        alarmToEdit = Alarm(
-                            locationName = favoriteLocations.first(),
-                            radius = 100f,
-                            sound = "Chimes",
-                            isEnabled = true
-                        )
-                        alarmIndexToEdit = -1 // Indicates a new alarm
-                        showEditDialog = true
-                    }
-                }
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add Alarm", tint = Color(0xFF006DFF))
-            }
-        }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        LazyColumn {
-            itemsIndexed(alarms) { index, alarm ->
-                AlarmItem(
-                    alarm = alarm,
-                    onToggle = { isEnabled ->
-                        val newList = alarms.toMutableList()
-                        val updatedAlarm = alarm.copy(isEnabled = isEnabled)
-                        newList[index] = updatedAlarm
-                        alarms = newList
-
-                        if (isEnabled) {
-                            updateAlarmSchedule(context, updatedAlarm)
-                        } else {
-                            // Cancel the alarm if it was disabled
-                            Toast.makeText(context, "Alarm for ${updatedAlarm.locationName} cancelled!", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    onDelete = {
-                        val newList = alarms.toMutableList()
-                        newList.removeAt(index)
-                        alarms = newList
-                    },
-                    onClick = {
-                        isNewAlarm = false
-                        alarmToEdit = alarm
-                        alarmIndexToEdit = index
-                        showEditDialog = true
-                    }
-                )
-                HorizontalDivider()
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun EditAlarmDialog(
-    alarm: Alarm,
-    favoriteLocations: List<String>,
-    onDismiss: () -> Unit,
-    onSave: (Alarm) -> Unit
+fun SettingsScreen(
+    onColorChange: (Color) -> Unit,
+    isRainbowEnabled: Boolean,
+    onRainbowToggle: (Boolean) -> Unit
 ) {
-    var selectedLocation by remember(alarm, favoriteLocations) {
-        val initialLocation = alarm.locationName
-        if (favoriteLocations.contains(initialLocation)) {
-            mutableStateOf(initialLocation)
-        } else if (favoriteLocations.isNotEmpty()) {
-            mutableStateOf(favoriteLocations.first())
-        } else {
-            mutableStateOf(initialLocation)
-        }
-    }
-    
-    var radius by remember(alarm) { mutableFloatStateOf(alarm.radius) }
-    var sound by remember(alarm) { mutableStateOf(alarm.sound) }
-
-    // Determine if the Save button should be enabled
-    val saveEnabled = favoriteLocations.isNotEmpty()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Edit Location Alarm") },
-        text = {
-            Column {
-                Text(
-                    text = "Select Location:",
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-                if (favoriteLocations.isEmpty()) {
-                    Text("No favorite locations added. Add some in Favorites tab!", color = Color.Gray)
-                } else {
-                    LazyColumn(modifier = Modifier.heightIn(max = 150.dp)) { // Limit height of the list
-                        items(favoriteLocations) { location ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable(enabled = saveEnabled) { selectedLocation = location }
-                                    .background(if (selectedLocation == location) Color.LightGray else Color.Transparent, RoundedCornerShape(8.dp))
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.Place, contentDescription = "Location", modifier = Modifier.size(20.dp))
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(location, fontSize = 16.sp, fontWeight = if (selectedLocation == location) FontWeight.Bold else FontWeight.Normal)
-                            }
-                            HorizontalDivider()
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // 2. Radius Slider
-                Text("Radius: ${radius.toInt()}m", fontWeight = FontWeight.SemiBold)
-                Slider(
-                    value = radius,
-                    onValueChange = { radius = it },
-                    valueRange = 50f..2000f,
-                    steps = 19, // Steps for granular control (50m increments)
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // 3. Sound Input (keeping existing logic)
-                OutlinedTextField(
-                    value = sound,
-                    onValueChange = { sound = it },
-                    label = { Text("Sound") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { 
-                    onSave(alarm.copy(locationName = selectedLocation, radius = radius, sound = sound)) 
-                },
-                enabled = saveEnabled && selectedLocation.isNotEmpty() && selectedLocation != "No favorite locations added"
-            ) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            Button(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
-}
-
-// UPDATED: Renamed function and changed signature to location-based alarm.
-fun updateAlarmSchedule(context: Context, alarm: Alarm) {
-    // This function would typically implement Geofencing APIs (e.e., Google Location Services)
-    // to trigger the alarm when the user enters/exits the specified radius around the location.
-    // For this task, we treat it as a UI/placeholder implementation.
-    
-    if (alarm.isEnabled) {
-        // Placeholder for Geofence registration
-        Toast.makeText(
-            context,
-            "Location Alarm set for ${alarm.locationName} (Radius: ${alarm.radius.toInt()}m)!",
-            Toast.LENGTH_LONG
-        ).show()
-    }
-}
-
-
-@Composable
-fun AlarmItem(alarm: Alarm, onToggle: (Boolean) -> Unit, onDelete: () -> Unit, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column {
-            // UPDATED: Display Location Name and Radius
-            Text(text = "Location: ${alarm.locationName}", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text(text = "Radius: ${alarm.radius.toInt()}m | Sound: ${alarm.sound}", fontSize = 14.sp, color = Color.Gray)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(checked = alarm.isEnabled, onCheckedChange = onToggle)
-            Spacer(modifier = Modifier.width(8.dp))
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete Alarm")
-            }
-        }
-    }
-}
-
-@Composable
-fun SettingsScreen(onColorChange: (Color) -> Unit, isRainbowEnabled: Boolean, onRainbowToggle: (Boolean) -> Unit) {
     var showColorOptions by remember { mutableStateOf(false) }
     val colorOptions = mapOf(
         "Red" to Color.Red,
@@ -1071,7 +476,9 @@ fun SettingsScreen(onColorChange: (Color) -> Unit, isRainbowEnabled: Boolean, on
 
         HorizontalDivider()
 
-        Column(modifier = Modifier.clickable(enabled = !isRainbowEnabled) { showColorOptions = !showColorOptions }) {
+        Column(modifier = Modifier.clickable(enabled = !isRainbowEnabled) {
+            showColorOptions = !showColorOptions
+        }) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1123,7 +530,7 @@ fun BottomNavBar(currentScreen: String, onScreenSelected: (String) -> Unit) {
         NavigationBarItem(
             selected = currentScreen == "Alarms",
             onClick = { onScreenSelected("Alarms") },
-            icon = { Icon(Icons.Default.Info, contentDescription = null) },
+            icon = { Icon(Icons.Default.Notifications, contentDescription = null) },
             label = { Text("Alarms") }
         )
         NavigationBarItem(
