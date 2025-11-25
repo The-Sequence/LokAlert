@@ -1,5 +1,6 @@
 package com.mobprog.lokalert
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,7 +61,6 @@ fun SearchScreen() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchSection(
-    // Removed onPlacePinClick since the FAB handles this now
     onSearch: ((String) -> Unit)? = null,
     onSuggestionClick: ((String) -> Unit)? = null
 ) {
@@ -68,6 +69,7 @@ fun SearchSection(
     var expanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
     var userHasSelectedSuggestion by remember { mutableStateOf(false) }
+    val keyboardController = LocalSoftwareKeyboardController.current
 
 
     // Places Client Setup
@@ -138,6 +140,7 @@ fun SearchSection(
                                 modifier = Modifier.clickable {
                                     searchText = ""
                                     expanded = false
+                                    keyboardController?.hide()
                                 }
                             )
                         }
@@ -155,13 +158,14 @@ fun SearchSection(
                         onSearch = {
                             onSearch?.invoke(searchText)
                             expanded = false
+                            keyboardController?.hide()
                         }
                     )
                 )
 
                 // The Suggestions List (Integrated directly below search)
                 // We use AnimatedVisibility so it slides down nicely
-                androidx.compose.animation.AnimatedVisibility(visible = expanded) {
+                AnimatedVisibility(visible = expanded) {
                     Column(modifier = Modifier.padding(bottom = 8.dp)) {
                         Divider(modifier = Modifier.padding(horizontal = 16.dp))
 
@@ -174,6 +178,7 @@ fun SearchSection(
                                         searchText = suggestion
                                         expanded = false
                                         onSuggestionClick?.invoke(suggestion)
+                                        keyboardController?.hide()
                                     }
                                     .padding(vertical = 12.dp, horizontal = 16.dp),
                                 verticalAlignment = Alignment.CenterVertically
