@@ -10,19 +10,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.libraries.places.api.Places
@@ -55,7 +59,7 @@ fun SearchScreen() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchSection(
-    onPlacePinClick: (() -> Unit)? = null,
+    // Removed onPlacePinClick since the FAB handles this now
     onSearch: ((String) -> Unit)? = null,
     onSuggestionClick: ((String) -> Unit)? = null
 ) {
@@ -64,12 +68,13 @@ fun SearchSection(
     var expanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    // Only create the client if Places is initialized
+    // Places Client Setup
     val placesClient = remember {
         if (Places.isInitialized()) Places.createClient(context) else null
     }
     val token = remember { AutocompleteSessionToken.newInstance() }
 
+    // Autocomplete Logic
     LaunchedEffect(searchText) {
         if (searchText.isNotEmpty() && placesClient != null) {
             val request = FindAutocompletePredictionsRequest.builder()
@@ -93,76 +98,98 @@ fun SearchSection(
         }
     }
 
+    // UI: A Floating Card Style
     Column(
         modifier = Modifier
-            .padding(12.dp)
             .fillMaxWidth()
+            .padding(16.dp) // Outer padding from screen edges
+            .padding(top = 32.dp) // Push down from status bar
     ) {
-        OutlinedTextField(
-            value = searchText,
-            onValueChange = { searchText = it },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
-            placeholder = { Text("Search locations...", fontSize = 14.sp) },
-            trailingIcon = {
-                Icon(
-                    Icons.Default.Search,
-                    contentDescription = null,
-                    modifier = Modifier.clickable { onSearch?.invoke(searchText) }
-                )
-            },
-            shape = RoundedCornerShape(30.dp),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(
-                onSearch = {
-                    onSearch?.invoke(searchText)
-                    expanded = false
-                }
-            )
-        )
-
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier.fillMaxWidth(0.9f) // Adjust width as needed
+        // We use a Surface to give it a solid background (White/Dark) and shadow (Elevation)
+        Surface(
+            shadowElevation = 8.dp, // Adds the shadow
+            shape = RoundedCornerShape(28.dp), // Fully rounded corners
+            color = MaterialTheme.colorScheme.surface, // Solid background color
+            modifier = Modifier.fillMaxWidth()
         ) {
-            suggestions.forEach { suggestion ->
-                DropdownMenuItem(
-                    text = { Text(text = suggestion) },
-                    onClick = {
-                        searchText = suggestion
-                        expanded = false
-                        onSuggestionClick?.invoke(suggestion)
-                    }
+            Column {
+                // The Search Text Field
+                OutlinedTextField(
+                    value = searchText,
+                    onValueChange = { searchText = it },
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    placeholder = { Text("Search locations...", fontSize = 14.sp) },
+                    leadingIcon = {
+                        Icon(Icons.Default.Search, contentDescription = "Search Icon")
+                    },
+                    trailingIcon = {
+                        if (searchText.isNotEmpty()) {
+                            // Clear button
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Clear",
+                                modifier = Modifier.clickable {
+                                    searchText = ""
+                                    expanded = false
+                                }
+                            )
+                        }
+                    },
+                    // Transparent colors so the Surface color shows through
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent
+                    ),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(
+                        onSearch = {
+                            onSearch?.invoke(searchText)
+                            expanded = false
+                        }
+                    )
                 )
+
+                // The Suggestions List (Integrated directly below search)
+                // We use AnimatedVisibility so it slides down nicely
+                androidx.compose.animation.AnimatedVisibility(visible = expanded) {
+                    Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                        Divider(modifier = Modifier.padding(horizontal = 16.dp))
+
+                        suggestions.forEach { suggestion ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        searchText = suggestion
+                                        expanded = false
+                                        onSuggestionClick?.invoke(suggestion)
+                                    }
+                                    .padding(vertical = 12.dp, horizontal = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LocationOn,
+                                    contentDescription = null,
+                                    tint = Color.Gray,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = suggestion,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        Text(
-            text = "OR",
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-            color = Color.Gray
-        )
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Button(
-            onClick = { onPlacePinClick?.invoke() },
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .height(40.dp),
-            shape = RoundedCornerShape(30.dp)
-        ) {
-            Icon(Icons.Default.Place, contentDescription = null)
-            Spacer(Modifier.width(6.dp))
-            Text("Click to Place Pin on Map")
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
     }
 }
 

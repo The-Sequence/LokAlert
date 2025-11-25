@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -51,6 +52,10 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation("androidx.compose.material:material-icons-extended")
+
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.material3)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -58,16 +63,16 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
-    implementation(libs.androidx.compose.material3)
     implementation(libs.play.services.maps)
     implementation(libs.google.maps.compose)
     implementation(libs.play.services.location)
-    testImplementation(libs.junit)
-    // Add this line to fix the error:
     implementation(libs.places)
-    // Add Compose Foundation (this is often implicitly needed for many basic modifiers)
     implementation("androidx.compose.foundation:foundation")
+    implementation("com.google.accompanist:accompanist-permissions:0.37.3")
+    implementation("androidx.datastore:datastore-preferences:1.2.0")
 
-
-
+    val roomVersion = "2.8.4"
+    implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion") // Important for Coroutines support
+    ksp("androidx.room:room-compiler:$roomVersion")
 }

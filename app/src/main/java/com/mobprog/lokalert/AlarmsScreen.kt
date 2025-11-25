@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,18 +22,26 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -66,6 +75,8 @@ fun AlarmsScreen(favoriteLocations: List<String>) {
     var alarmIndexToEdit by remember { mutableIntStateOf(-1) }
     var isNewAlarm by remember { mutableStateOf(false) } // Track if we are creating a new alarm
 
+    val openAlertDialog = remember { mutableStateOf(false) } // TESTING VARIABLE
+
     if (showEditDialog && alarmToEdit != null) {
         EditAlarmDialog(
             alarm = alarmToEdit!!,
@@ -89,84 +100,118 @@ fun AlarmsScreen(favoriteLocations: List<String>) {
         )
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Location Alarms", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-
-            // PLUS Icon for adding a new alarm
-            IconButton(
-                onClick = {
-                    if (favoriteLocations.isEmpty()) {
-                        Toast.makeText(
-                            context,
-                            "Please add a favorite location first!",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    } else {
-                        isNewAlarm = true
-                        // Create a default alarm using the first favorite location
-                        alarmToEdit = Alarm(
-                            locationName = favoriteLocations.first(),
-                            radius = 100f,
-                            sound = "Chimes",
-                            isEnabled = true
-                        )
-                        alarmIndexToEdit = -1 // Indicates a new alarm
-                        showEditDialog = true
-                    }
-                }
+    Scaffold(
+        contentWindowInsets = WindowInsets(0.dp),
+        topBar = {
+            TopAppBar(
+                windowInsets = WindowInsets(0.dp),
+                title = { Text("Location Alarms", fontSize = 24.sp, fontWeight = FontWeight.Bold) }
+            )
+        },
+        floatingActionButton = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalAlignment = Alignment.End
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Add Alarm", tint = Color(0xFF006DFF))
-            }
-        }
+                SmallFloatingActionButton(
+                    onClick = { openAlertDialog.value = true },
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = "Test")
+                }
 
-        Spacer(modifier = Modifier.height(16.dp))
-        LazyColumn {
-            itemsIndexed(alarms) { index, alarm ->
-                AlarmItem(
-                    alarm = alarm,
-                    onToggle = { isEnabled ->
-                        val newList = alarms.toMutableList()
-                        val updatedAlarm = alarm.copy(isEnabled = isEnabled)
-                        newList[index] = updatedAlarm
-                        alarms = newList
-
-                        if (isEnabled) {
-                            updateAlarmSchedule(context, updatedAlarm)
-                        } else {
-                            // Cancel the alarm if it was disabled
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        if (favoriteLocations.isEmpty()) {
                             Toast.makeText(
                                 context,
-                                "Alarm for ${updatedAlarm.locationName} cancelled!",
+                                "Please add a favorite location first!",
                                 Toast.LENGTH_SHORT
                             ).show()
+                        } else {
+                            isNewAlarm = true
+                            // Create a default alarm using the first favorite location
+                            alarmToEdit = Alarm(
+                                locationName = favoriteLocations.first(),
+                                radius = 100f,
+                                sound = "Chimes",
+                                isEnabled = true
+                            )
+                            alarmIndexToEdit = -1 // Indicates a new alarm
+                            showEditDialog = true
                         }
                     },
-                    onDelete = {
-                        val newList = alarms.toMutableList()
-                        newList.removeAt(index)
-                        alarms = newList
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = "Add Alarm",
+                        )
                     },
-                    onClick = {
-                        isNewAlarm = false
-                        alarmToEdit = alarm
-                        alarmIndexToEdit = index
-                        showEditDialog = true
-                    }
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    elevation = FloatingActionButtonDefaults.elevation(
+                        defaultElevation = 6.dp,
+                        pressedElevation = 6.dp
+                    ),
+
+                    text = { Text(text = "New Alarm", fontSize = 16.sp) }
+
                 )
-                HorizontalDivider()
+            }
+        }
+    ) { contentPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(contentPadding)
+                .padding(horizontal = 16.dp),
+        ) {
+            LazyColumn {
+                itemsIndexed(alarms) { index, alarm ->
+                    AlarmItem(
+                        alarm = alarm,
+                        onToggle = { isEnabled ->
+                            val newList = alarms.toMutableList()
+                            val updatedAlarm = alarm.copy(isEnabled = isEnabled)
+                            newList[index] = updatedAlarm
+                            alarms = newList
+
+                            if (isEnabled) {
+                                updateAlarmSchedule(context, updatedAlarm)
+                            } else {
+                                // Cancel the alarm if it was disabled
+                                Toast.makeText(
+                                    context,
+                                    "Alarm for ${updatedAlarm.locationName} cancelled!",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                        onDelete = {
+                            val newList = alarms.toMutableList()
+                            newList.removeAt(index)
+                            alarms = newList
+                        },
+                        onClick = {
+                            isNewAlarm = false
+                            alarmToEdit = alarm
+                            alarmIndexToEdit = index
+                            showEditDialog = true
+                        }
+                    )
+                    HorizontalDivider()
+                }
             }
         }
     }
-}
+
+    // Display the test alert dialog when openAlertDialog is true
+    if (openAlertDialog.value) {
+        TestAlertDialog(onDismissRequest = { openAlertDialog.value = false })
+    }
+    }
+
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -248,8 +293,8 @@ fun EditAlarmDialog(
                 Slider(
                     value = radius,
                     onValueChange = { radius = it },
-                    valueRange = 50f..2000f,
-                    steps = 19, // Steps for granular control (50m increments)
+                    valueRange = 100f..2000f,
+                    steps = 18,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(16.dp))
@@ -321,7 +366,7 @@ fun AlarmItem(
         Column {
             // UPDATED: Display Location Name and Radius
             Text(
-                text = "Location: ${alarm.locationName}",
+                text = alarm.locationName,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -339,4 +384,30 @@ fun AlarmItem(
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TestAlertDialog(onDismissRequest: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        icon = { Icon(Icons.Filled.Security, contentDescription = "Security Icon") },
+        title = {
+            Text(text = "Safety Check")
+        },
+        text = {
+            Text(
+                text = "Sleeping in public makes you vulnerable to theft. " +
+                        "Before you nap, loop your bag straps around your arm or leg " +
+                        "and keep your phone in a zipped pocket, not in your hand."
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismissRequest
+            ) {
+                Text("I'm secured")
+            }
+        }
+    )
 }

@@ -1,35 +1,18 @@
 package com.mobprog.lokalert
 
 
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
-import android.Manifest
-import android.annotation.SuppressLint
-import android.app.AlarmManager
-import android.app.PendingIntent
-import android.app.TimePickerDialog
-import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.location.Address
-import android.location.Geocoder
-import android.location.Location
-import android.os.Build
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector4D
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.TwoWayConverter
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,51 +21,37 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -91,41 +60,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLng
 import com.google.android.libraries.places.api.Places
-import com.google.android.libraries.places.api.model.AutocompleteSessionToken
-import com.google.android.libraries.places.api.net.FindAutocompletePredictionsRequest
-import com.google.maps.android.compose.CameraPositionState
-import com.google.maps.android.compose.Circle
-import com.google.android.libraries.places.api.net.PlacesClient
-import com.google.maps.android.compose.GoogleMap
-import com.google.maps.android.compose.MapProperties
-import com.google.maps.android.compose.Marker
-import com.google.maps.android.compose.MarkerState
-import com.google.maps.android.compose.rememberCameraPositionState
-import com.google.maps.android.compose.rememberMarkerState
 import com.mobprog.lokalert.ui.theme.LokAlertTheme
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.util.Calendar
-import java.util.Locale
-import kotlin.math.roundToInt
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.material.icons.filled.Notifications
 
 
 data class Alarm(
@@ -152,23 +96,43 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             LokAlertTheme {
-                RequestPermissions()
-                LokAlertApp()
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    LokAlertAppEntryPoint()
+                }
             }
         }
     }
 }
 
 @Composable
-fun RequestPermissions() {
+fun LokAlertAppEntryPoint() {
     val context = LocalContext.current
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        if (!alarmManager.canScheduleExactAlarms()) {
-            Intent().also { intent ->
-                intent.action = android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM
-                context.startActivity(intent)
+    val scope = rememberCoroutineScope()
+
+    val userPreferences = remember { Onboarding(context) }
+
+    val isOnboardingCompleted by userPreferences.isOnboardingCompleted.collectAsState(initial = null)
+
+    when (isOnboardingCompleted) {
+        null -> {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
             }
+        }
+        false -> {
+            OnboardingScreen(
+                onFinished = {
+                    scope.launch {
+                        userPreferences.saveOnboardingCompleted()
+                    }
+                }
+            )
+        }
+        true -> {
+            LokAlertApp()
         }
     }
 }
@@ -259,12 +223,10 @@ fun LokAlertApp() {
 
     Scaffold(
         topBar = { TopBar(animatedTitleColor.value) },
-        bottomBar = { BottomNavBar(currentScreen) { currentScreen = it } },
-        containerColor = Color(0xFFF0F0F0)
+        bottomBar = { BottomNavBar(currentScreen) { currentScreen = it } }
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues)) {
             when (currentScreen) {
-                "Search" -> SearchScreen()
                 "Favorites" -> FavoritesScreen(
                     recentSearches = recentSearches,
                     favoriteLocations = favoriteLocations,
@@ -354,108 +316,26 @@ fun SearchHistoryItem(location: String, isFavorite: Boolean, onToggleFavorite: (
 }
 
 @Composable
-fun FavoritesScreen(
-    recentSearches: List<String>,
-    favoriteLocations: List<String>,
-    onToggleFavorite: (String) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp), // Adjust padding for a cleaner look
-    ) {
-        // Main title for the screen
-        Text(
-            "My Locations",
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 16.dp, bottom = 16.dp)
-        )
-
-        // First Section/Row: Search History
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp)
-        ) {
-            Text(
-                "Recent Search History",
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 18.sp,
-                color = Color.Gray
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Scrollable and constrained history list using LazyColumn
-            if (recentSearches.isEmpty()) {
-                Text("No recent searches.", color = Color.LightGray)
-            } else {
-                LazyColumn(
-                    modifier = Modifier.heightIn(max = 200.dp), // Limit height to about 5-6 items, enabling scroll if more exist
-                    userScrollEnabled = true,
-                ) {
-                    itemsIndexed(recentSearches) { index, location ->
-                        val isFavorite = favoriteLocations.contains(location)
-                        SearchHistoryItem(
-                            location = location,
-                            isFavorite = isFavorite,
-                            onToggleFavorite = onToggleFavorite
-                        )
-                        HorizontalDivider()
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp)) // Separator space between the two main sections
-
-        // Second Section/Row: Favorite Locations Content
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.Start // Align text to start for better layout when list is populated
-        ) {
-            Text(
-                "Favorite Locations",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-            if (favoriteLocations.isEmpty()) {
-                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text("You haven't added any favorite locations yet.", color = Color.Gray)
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth() // Use LazyColumn for Favorites List
-                ) {
-                    items(favoriteLocations) { location ->
-                        // Reuse SearchHistoryItem for display, as it now handles the favorite/unfavorite logic
-                        SearchHistoryItem(
-                            location = location,
-                            isFavorite = true, // It is a favorite if it's in this list
-                            onToggleFavorite = onToggleFavorite
-                        )
-                        HorizontalDivider()
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 fun SettingsScreen(
     onColorChange: (Color) -> Unit,
     isRainbowEnabled: Boolean,
     onRainbowToggle: (Boolean) -> Unit
 ) {
     var showColorOptions by remember { mutableStateOf(false) }
+    var selectedColorIndex by remember { mutableIntStateOf(3) } // Default to "Mono"
     val colorOptions = mapOf(
         "Red" to Color.Red,
         "Green" to Color.Green,
         "Blue" to Color.Blue,
-        "Black" to Color.Black
+        "Mono" to if (isSystemInDarkTheme()) {
+            Color.White
+        } else {
+            Color.Black
+        }
+
     )
+    val colorOptionKeys = colorOptions.keys.toList()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -501,9 +381,22 @@ fun SettingsScreen(
                         .padding(top = 8.dp),
                     horizontalArrangement = Arrangement.SpaceAround
                 ) {
-                    colorOptions.forEach { (name, colorValue) ->
-                        Button(onClick = { onColorChange(colorValue) }) {
-                            Text(name)
+                    SingleChoiceSegmentedButtonRow {
+                        colorOptionKeys.forEachIndexed { index, name ->
+                            val colorValue = colorOptions[name]!!
+                            SegmentedButton(
+                                shape = SegmentedButtonDefaults.itemShape(
+                                    index = index,
+                                    count = colorOptionKeys.size
+                                ),
+                                onClick = {
+                                    selectedColorIndex = index
+                                    onColorChange(colorValue)
+                                          },
+                                selected = index == selectedColorIndex
+                            ) {
+                                Text(name)
+                            }
                         }
                     }
                 }
@@ -516,16 +409,16 @@ fun SettingsScreen(
 fun BottomNavBar(currentScreen: String, onScreenSelected: (String) -> Unit) {
     NavigationBar {
         NavigationBarItem(
-            selected = currentScreen == "Favorites",
-            onClick = { onScreenSelected("Favorites") },
-            icon = { Icon(Icons.Default.Favorite, contentDescription = null) },
-            label = { Text("Favorites") }
-        )
-        NavigationBarItem(
             selected = currentScreen == "Maps",
             onClick = { onScreenSelected("Maps") },
+            icon = { Icon(Icons.Default.Map, contentDescription = null) },
+            label = { Text("Map") }
+        )
+        NavigationBarItem(
+            selected = currentScreen == "Favorites",
+            onClick = { onScreenSelected("Favorites") },
             icon = { Icon(Icons.Default.Place, contentDescription = null) },
-            label = { Text("Maps") }
+            label = { Text("Locations") }
         )
         NavigationBarItem(
             selected = currentScreen == "Alarms",
