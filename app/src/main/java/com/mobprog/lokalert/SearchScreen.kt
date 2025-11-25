@@ -67,6 +67,8 @@ fun SearchSection(
     var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
     var expanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    var userHasSelectedSuggestion by remember { mutableStateOf(false) }
+
 
     // Places Client Setup
     val placesClient = remember {
@@ -76,6 +78,10 @@ fun SearchSection(
 
     // Autocomplete Logic
     LaunchedEffect(searchText) {
+        if (userHasSelectedSuggestion) {
+            userHasSelectedSuggestion = false
+            return@LaunchedEffect
+        }
         if (searchText.isNotEmpty() && placesClient != null) {
             val request = FindAutocompletePredictionsRequest.builder()
                 .setCountries("PH")
@@ -164,6 +170,7 @@ fun SearchSection(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
+                                        userHasSelectedSuggestion = true
                                         searchText = suggestion
                                         expanded = false
                                         onSuggestionClick?.invoke(suggestion)

@@ -72,10 +72,12 @@ fun MapsScreen(onNewSearch: (String) -> Unit) {
     val sheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
     var showBottomSheet by remember { mutableStateOf(false) }
-    var uiSettings by remember { mutableStateOf(MapUiSettings(
+    var uiSettings by remember {
+        mutableStateOf(MapUiSettings(
         zoomControlsEnabled = false,
         myLocationButtonEnabled = false
-    )) }
+    ))
+    }
     var hasLocationPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -328,21 +330,21 @@ fun MapsScreen(onNewSearch: (String) -> Unit) {
                 Column {
                     Text(
                         text = "Alert Radius: ${radius.toInt()} meters",
-                        style = MaterialTheme.typography.bodyLarge
+                        style = MaterialTheme.typography.bodyMedium
                     )
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     Slider(
                         value = radius,
                         onValueChange = { radius = it },
-                        valueRange = 100f..2000f,
-                        steps = 18
+                        valueRange = 100f..1000f
+
                     )
 
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
