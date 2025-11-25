@@ -9,6 +9,8 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,8 +20,13 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddCircleOutline
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.Button
@@ -52,6 +59,7 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.MapStyleOptions
 import com.google.maps.android.compose.Circle
 import com.google.maps.android.compose.DragState
 import com.google.maps.android.compose.GoogleMap
@@ -78,6 +86,7 @@ fun MapsScreen(onNewSearch: (String) -> Unit) {
         myLocationButtonEnabled = false
     ))
     }
+
     var hasLocationPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -88,6 +97,19 @@ fun MapsScreen(onNewSearch: (String) -> Unit) {
                         context,
                         Manifest.permission.ACCESS_COARSE_LOCATION
                     ) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    val isDarkTheme = isSystemInDarkTheme()
+
+    val mapProperties = remember(isDarkTheme, hasLocationPermission) {
+        MapProperties(
+            isMyLocationEnabled = hasLocationPermission,
+            mapStyleOptions = if (isDarkTheme) {
+                MapStyleOptions.loadRawResourceStyle(context, R.raw.map_style_dark)
+            } else {
+                null // Default Light Mode
+            }
         )
     }
 
@@ -198,7 +220,7 @@ fun MapsScreen(onNewSearch: (String) -> Unit) {
             GoogleMap(
                 modifier = Modifier.fillMaxSize(),
                 cameraPositionState = cameraPositionState,
-                properties = MapProperties(isMyLocationEnabled = hasLocationPermission),
+                properties = mapProperties,
                 uiSettings = uiSettings,
                 onMapClick = {
                     // Optional: Click map to set pin as well
@@ -230,6 +252,17 @@ fun MapsScreen(onNewSearch: (String) -> Unit) {
                         fillColor = Color(0x22006DFF)
                     )
                 }
+            }
+
+            if (markerPosition == null) {
+                Icon(
+                    imageVector = Icons.Filled.Add, // Or use a custom crosshair icon
+                    contentDescription = "Center Target",
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(36.dp), // Make it large enough to see
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
 
             SearchSection(
@@ -318,7 +351,7 @@ fun MapsScreen(onNewSearch: (String) -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
-                    .padding(bottom = 8.dp), // Add padding for bottom safe area
+                    .padding(bottom = 16.dp), // Add padding for bottom safe area
                 verticalArrangement = Arrangement.spacedBy(16.dp) // Spacing between elements
             ) {
                 // 1. Header Title
