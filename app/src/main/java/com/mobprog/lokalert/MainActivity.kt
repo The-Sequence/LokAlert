@@ -1,9 +1,9 @@
 package com.mobprog.lokalert
 
-
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.Animatable
@@ -22,19 +22,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,23 +65,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.libraries.places.api.Places
 import com.mobprog.lokalert.ui.theme.LokAlertTheme
 import kotlinx.coroutines.launch
-
-
-data class Alarm(
-    val locationName: String,
-    val radius: Float,
-    val sound: String,
-    val isEnabled: Boolean
-)
 
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
         // Initialize Places API
         if (!Places.isInitialized()) {
             val apiKey = packageManager.getApplicationInfo(
@@ -94,6 +86,7 @@ class MainActivity : ComponentActivity() {
                 Places.initialize(applicationContext, apiKey)
             }
         }
+
         setContent {
             LokAlertTheme {
                 Surface(
@@ -111,9 +104,7 @@ class MainActivity : ComponentActivity() {
 fun LokAlertAppEntryPoint() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-
     val userPreferences = remember { Onboarding(context) }
-
     val isOnboardingCompleted by userPreferences.isOnboardingCompleted.collectAsState(initial = null)
 
     when (isOnboardingCompleted) {
@@ -125,9 +116,7 @@ fun LokAlertAppEntryPoint() {
         false -> {
             OnboardingScreen(
                 onFinished = {
-                    scope.launch {
-                        userPreferences.saveOnboardingCompleted()
-                    }
+                    scope.launch { userPreferences.saveOnboardingCompleted() }
                 }
             )
         }
@@ -137,41 +126,24 @@ fun LokAlertAppEntryPoint() {
     }
 }
 
-
 @Composable
 fun LokAlertApp() {
     var currentScreen by remember { mutableStateOf("Maps") }
     var titleColor by remember { mutableStateOf(Color(0xFF006DFF)) }
     var isRainbowEffectEnabled by remember { mutableStateOf(false) }
-    var recentSearches by remember {
-        mutableStateOf(
-            listOf(
-                "Manila, PH",
-                "Cebu, PH",
-                "Davao, PH"
-            )
-        )
-    } // Initialize state
-    var favoriteLocations by remember {
-        mutableStateOf(
-            listOf<String>(
-                "Home",
-                "Work"
-            )
-        )
-    }
 
+    val mapsViewModel: MapsViewModel = viewModel()
+
+    // State for Search History
+    var recentSearches by remember { mutableStateOf(emptyList<String>()) }
+
+    // --- Animation Logic ---
     val animatedTitleColor = remember {
         Animatable(
             titleColor,
             TwoWayConverter(
                 convertToVector = { color: Color ->
-                    AnimationVector4D(
-                        color.red,
-                        color.green,
-                        color.blue,
-                        color.alpha
-                    )
+                    AnimationVector4D(color.red, color.green, color.blue, color.alpha)
                 },
                 convertFromVector = { vector -> Color(vector.v1, vector.v2, vector.v3, vector.v4) }
             )
@@ -181,14 +153,7 @@ fun LokAlertApp() {
     LaunchedEffect(isRainbowEffectEnabled, titleColor) {
         if (isRainbowEffectEnabled) {
             launch {
-                val rainbowColors = listOf(
-                    Color.Red,
-                    Color.Green,
-                    Color.Blue,
-                    Color.Magenta,
-                    Color.Yellow,
-                    Color.Red
-                )
+                val rainbowColors = listOf(Color.Red, Color.Green, Color.Blue, Color.Magenta, Color.Yellow, Color.Red)
                 while (true) {
                     for (color in rainbowColors) {
                         animatedTitleColor.animateTo(
@@ -203,6 +168,11 @@ fun LokAlertApp() {
         }
     }
 
+    BackHandler(enabled = currentScreen == "Settings") {
+        currentScreen = "Maps"
+    }
+
+    // --- Helper Functions ---
     fun addRecentSearch(location: String) {
         val MAX_HISTORY = 5
         if (!recentSearches.contains(location)) {
@@ -213,26 +183,33 @@ fun LokAlertApp() {
         }
     }
 
-    fun toggleFavorite(location: String) { // NEW FUNCTION
-        favoriteLocations = if (favoriteLocations.contains(location)) {
-            favoriteLocations.filter { it != location }
-        } else {
-            favoriteLocations + location
-        }
-    }
 
+    // --- Main Layout ---
     Scaffold(
-        topBar = { TopBar(animatedTitleColor.value) },
-        bottomBar = { BottomNavBar(currentScreen) { currentScreen = it } }
+        topBar = { TopBar(
+            color = animatedTitleColor.value,
+            onSettingsClick = { currentScreen = "Settings" }) },
+        bottomBar = {
+            if (currentScreen != "Settings") {
+                BottomNavBar(currentScreen) { currentScreen = it }
+            }
+        }
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues)) {
             when (currentScreen) {
-                "Favorites" -> FavoritesScreen(
+                "Maps" -> MapsScreen(
+                    onNewSearch = { query -> addRecentSearch(query) },
+                    onDone = { currentScreen = "Locations" }, // Navigate after saving alarm
+                    viewModel = mapsViewModel
+                )
+                "Locations" -> LocationsScreen(
                     recentSearches = recentSearches,
-                    favoriteLocations = favoriteLocations,
-                    onToggleFavorite = ::toggleFavorite
-                ) // Pass state and updater
-                "Maps" -> MapsScreen(onNewSearch = ::addRecentSearch) // Pass updater
+                    viewModel = mapsViewModel,
+                    onViewOnMap = {
+                        // Switch to Map screen when "View on Map" is clicked in the sheet
+                        currentScreen = "Maps"
+                    }
+                )
                 "Settings" -> SettingsScreen(
                     onColorChange = { titleColor = it },
                     isRainbowEnabled = isRainbowEffectEnabled,
@@ -251,7 +228,7 @@ fun DefaultPreview() {
     }
 }
 
-// Add this to the bottom of your MainActivity.kt file, outside any class
+// Helper to disable touch pass-through (if needed for overlays)
 fun Modifier.bypassing(): Modifier = this.pointerInput(Unit) {
     awaitPointerEventScope {
         while (true) {
@@ -260,56 +237,49 @@ fun Modifier.bypassing(): Modifier = this.pointerInput(Unit) {
     }
 }
 
-
 @Composable
-fun TopBar(color: Color) {
+fun TopBar(color: Color, onSettingsClick: () -> Unit) {
+    var showMenu by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 14.dp),
+            .padding(horizontal = 20.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
+        // App Title
         Text(
             text = "LokAlert",
             fontSize = 22.sp,
             fontWeight = FontWeight.Bold,
             color = color
         )
-        Icon(
-            Icons.Default.MoreVert,
-            contentDescription = "Options",
-            modifier = Modifier.align(Alignment.CenterEnd)
-        )
-    }
-}
 
-@Composable
-fun SearchHistoryItem(location: String, isFavorite: Boolean, onToggleFavorite: (String) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { /* TODO: Implement navigation/search on click */ }
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Default.Place,
-                contentDescription = "Location",
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(location, fontSize = 16.sp)
-        }
+        // Menu Button and Dropdown (Aligned Right)
+        Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+            IconButton(onClick = { showMenu = !showMenu }) {
+                Icon(
+                    Icons.Default.MoreVert,
+                    contentDescription = "Options"
+                )
+            }
 
-        IconButton(onClick = { onToggleFavorite(location) }) {
-            Icon(
-                Icons.Default.Favorite,
-                contentDescription = if (isFavorite) "Remove from Favorites" else "Add to Favorites",
-                tint = if (isFavorite) Color.Red else Color.Gray
-            )
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Settings") },
+                    onClick = {
+                        showMenu = false
+                        onSettingsClick()
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Default.Settings, contentDescription = null)
+                    }
+                )
+            }
         }
     }
 }
@@ -320,32 +290,24 @@ fun SettingsScreen(
     isRainbowEnabled: Boolean,
     onRainbowToggle: (Boolean) -> Unit
 ) {
+
     var showColorOptions by remember { mutableStateOf(false) }
     var selectedColorIndex by remember { mutableIntStateOf(3) } // Default to "Mono"
     val colorOptions = mapOf(
         "Red" to Color.Red,
         "Green" to Color.Green,
         "Blue" to Color.Blue,
-        "Mono" to if (isSystemInDarkTheme()) {
-            Color.White
-        } else {
-            Color.Black
-        }
-
+        "Mono" to if (isSystemInDarkTheme()) Color.White else Color.Black
     )
     val colorOptionKeys = colorOptions.keys.toList()
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier = Modifier.fillMaxSize().padding(16.dp),
     ) {
         Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(16.dp))
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -359,9 +321,7 @@ fun SettingsScreen(
             showColorOptions = !showColorOptions
         }) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -375,23 +335,18 @@ fun SettingsScreen(
 
             if (showColorOptions && !isRainbowEnabled) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     horizontalArrangement = Arrangement.SpaceAround
                 ) {
                     SingleChoiceSegmentedButtonRow {
                         colorOptionKeys.forEachIndexed { index, name ->
                             val colorValue = colorOptions[name]!!
                             SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(
-                                    index = index,
-                                    count = colorOptionKeys.size
-                                ),
+                                shape = SegmentedButtonDefaults.itemShape(index = index, count = colorOptionKeys.size),
                                 onClick = {
                                     selectedColorIndex = index
                                     onColorChange(colorValue)
-                                          },
+                                },
                                 selected = index == selectedColorIndex
                             ) {
                                 Text(name)
@@ -414,17 +369,10 @@ fun BottomNavBar(currentScreen: String, onScreenSelected: (String) -> Unit) {
             label = { Text("Map") }
         )
         NavigationBarItem(
-            selected = currentScreen == "Favorites",
-            onClick = { onScreenSelected("Favorites") },
+            selected = currentScreen == "Locations",
+            onClick = { onScreenSelected("Locations") },
             icon = { Icon(Icons.Default.Place, contentDescription = null) },
             label = { Text("Locations") }
-        )
-
-        NavigationBarItem(
-            selected = currentScreen == "Settings",
-            onClick = { onScreenSelected("Settings") },
-            icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-            label = { Text("Settings") }
         )
     }
 }
