@@ -92,8 +92,9 @@ fun MapsScreen(onNewSearch: (String) -> Unit) {
     var radius by remember { mutableFloatStateOf(100f) } // Default radius 100 meters
     var showRadiusAdjustment by remember { mutableStateOf(false) }
     
-    // -- ALARM SOUND STATE --
+    // -- ALARM STATE --
     var alarmSoundUri by remember { mutableStateOf(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString()) }
+    var alarmName by remember { mutableStateOf("") } // New state for alarm label
     var showSoundSelectionDialog by remember { mutableStateOf(false) }
 
     val launcher = rememberLauncherForActivityResult(
@@ -355,6 +356,16 @@ fun MapsScreen(onNewSearch: (String) -> Unit) {
                 Text(
                     text = "Edit Location",
                     style = MaterialTheme.typography.headlineSmall
+                )
+
+                // -- Custom Alarm Name Input --
+                OutlinedTextField(
+                    value = alarmName,
+                    onValueChange = { alarmName = it },
+                    label = { Text("Alarm Name") },
+                    placeholder = { Text("Enter alarm label") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
                 )
 
                 Column {
