@@ -233,7 +233,6 @@ fun LokAlertApp() {
                     onToggleFavorite = ::toggleFavorite
                 ) // Pass state and updater
                 "Maps" -> MapsScreen(onNewSearch = ::addRecentSearch) // Pass updater
-                "Alarms" -> AlarmsScreen(favoriteLocations = favoriteLocations) // Pass favoriteLocations
                 "Settings" -> SettingsScreen(
                     onColorChange = { titleColor = it },
                     isRainbowEnabled = isRainbowEffectEnabled,
@@ -420,12 +419,7 @@ fun BottomNavBar(currentScreen: String, onScreenSelected: (String) -> Unit) {
             icon = { Icon(Icons.Default.Place, contentDescription = null) },
             label = { Text("Locations") }
         )
-        NavigationBarItem(
-            selected = currentScreen == "Alarms",
-            onClick = { onScreenSelected("Alarms") },
-            icon = { Icon(Icons.Default.Notifications, contentDescription = null) },
-            label = { Text("Alarms") }
-        )
+
         NavigationBarItem(
             selected = currentScreen == "Settings",
             onClick = { onScreenSelected("Settings") },
