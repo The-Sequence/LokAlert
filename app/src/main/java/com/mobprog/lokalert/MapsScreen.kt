@@ -2,56 +2,37 @@ package com.mobprog.lokalert
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.location.Location
+import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AddCircleOutline
-import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SmallFloatingActionButton
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -60,14 +41,7 @@ import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MapStyleOptions
-import com.google.maps.android.compose.Circle
-import com.google.maps.android.compose.DragState
-import com.google.maps.android.compose.GoogleMap
-import com.google.maps.android.compose.MapProperties
-import com.google.maps.android.compose.MapUiSettings
-import com.google.maps.android.compose.Marker
-import com.google.maps.android.compose.rememberCameraPositionState
-import com.google.maps.android.compose.rememberMarkerState
+import com.google.maps.android.compose.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -117,12 +91,36 @@ fun MapsScreen(onNewSearch: (String) -> Unit) {
     var markerPosition by remember { mutableStateOf<LatLng?>(null) }
     var radius by remember { mutableFloatStateOf(100f) } // Default radius 100 meters
     var showRadiusAdjustment by remember { mutableStateOf(false) }
+    
+    // -- ALARM SOUND STATE --
+    var alarmSoundUri by remember { mutableStateOf(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString()) }
+    var showSoundSelectionDialog by remember { mutableStateOf(false) }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         hasLocationPermission = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                 permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+    }
+    
+    // -- SOUND PICKER LAUNCHERS --
+    val ringtonePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)?.let { uri -> 
+            alarmSoundUri = uri.toString() 
+        }
+    }
+
+    val customFilePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let {
+            try {
+                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(it, takeFlags)
+                alarmSoundUri = it.toString()
+            } catch (e: Exception) {
+                // Fallback if persistable permission fails
+                alarmSoundUri = it.toString()
+            }
+        }
     }
 
     val cameraPositionState = rememberCameraPositionState {
@@ -135,8 +133,6 @@ fun MapsScreen(onNewSearch: (String) -> Unit) {
             fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
                 if (location != null) {
                     val userLatLng = LatLng(location.latitude, location.longitude)
-
-                    // Move the camera instantly to the user's location
                     cameraPositionState.position = CameraPosition.fromLatLngZoom(userLatLng, 16f)
                 }
             }
@@ -351,8 +347,9 @@ fun MapsScreen(onNewSearch: (String) -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
-                    .padding(bottom = 16.dp), // Add padding for bottom safe area
-                verticalArrangement = Arrangement.spacedBy(16.dp) // Spacing between elements
+                    .padding(bottom = 16.dp)
+                    .verticalScroll(rememberScrollState()), // Add scroll
+                verticalArrangement = Arrangement.spacedBy(16.dp) 
             ) {
                 // 1. Header Title
                 Text(
@@ -375,6 +372,11 @@ fun MapsScreen(onNewSearch: (String) -> Unit) {
 
                     )
 
+                }
+                
+                // -- ALARM SOUND SELECTION --
+                MapsPickerRow(label = "Alarm Sound", text = getRingtoneTitle(context, alarmSoundUri)) {
+                    showSoundSelectionDialog = true
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
@@ -420,5 +422,75 @@ fun MapsScreen(onNewSearch: (String) -> Unit) {
                 }
             }
         }
+    }
+    
+    if (showSoundSelectionDialog) {
+        AlertDialog(
+            onDismissRequest = { showSoundSelectionDialog = false },
+            title = { Text("Choose Sound Source") },
+            text = {
+                Column {
+                    TextButton(
+                        onClick = {
+                            showSoundSelectionDialog = false
+                            ringtonePickerLauncher.launch(
+                                Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(alarmSoundUri))
+                                }
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("System Ringtones") }
+                    
+                    TextButton(
+                        onClick = {
+                            showSoundSelectionDialog = false
+                            // Launch file picker for audio
+                            customFilePickerLauncher.launch("audio/*")
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Custom File (.mp3)") }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { showSoundSelectionDialog = false }) { Text("Cancel") } }
+        )
+    }
+}
+
+// Helper Composable specifically for MapsScreen to avoid ambiguity
+@Composable
+fun MapsPickerRow(label: String, text: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .clickable(onClick = onClick)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            Text(text, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+        }
+        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+    }
+}
+
+fun getRingtoneTitle(context: Context, uriString: String): String {
+    return try {
+        val uri = Uri.parse(uriString)
+        // Try getting title from RingtoneManager first
+        RingtoneManager.getRingtone(context, uri)?.getTitle(context)
+            // Fallback for custom URIs or if RingtoneManager can't get a title
+            ?: uri.lastPathSegment?.substringBeforeLast('.') ?: "Custom Sound"
+    } catch (e: Exception) {
+        "Unknown Sound"
     }
 }
