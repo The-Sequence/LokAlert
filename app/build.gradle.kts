@@ -8,9 +8,7 @@ plugins {
 
 android {
     namespace = "com.mobprog.lokalert"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.mobprog.lokalert"
@@ -75,6 +73,8 @@ dependencies {
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion") // Important for Coroutines support
     ksp("androidx.room:room-compiler:$roomVersion")
+
+    implementation("com.google.code.gson:gson:2.10.1")
 
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
 }
