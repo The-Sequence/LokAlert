@@ -364,13 +364,13 @@ fun BottomNavBar(currentScreen: String, onScreenSelected: (String) -> Unit) {
         NavigationBarItem(
             selected = currentScreen == "Maps",
             onClick = { onScreenSelected("Maps") },
-            icon = { Icon(Icons.Default.Map, contentDescription = null) },
+            icon = { Icon(Icons.Default.Map, contentDescription = "Map view") },
             label = { Text("Map") }
         )
         NavigationBarItem(
             selected = currentScreen == "Locations",
             onClick = { onScreenSelected("Locations") },
-            icon = { Icon(Icons.Default.Place, contentDescription = null) },
+            icon = { Icon(Icons.Default.Place, contentDescription = "Locations list") },
             label = { Text("Locations") }
         )
     }

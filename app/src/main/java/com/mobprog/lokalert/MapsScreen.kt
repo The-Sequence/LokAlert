@@ -50,6 +50,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
 
+// Constants
+private const val MIN_RADIUS = 100f
+private const val MAX_RADIUS = 1000f
+private const val DEFAULT_RADIUS = 100f
+private const val MAX_ALARM_NAME_LENGTH = 50
+private const val DEFAULT_ALARM_NAME = "Time to wake up!"
+
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("MissingPermission")
 @Composable
@@ -81,7 +88,7 @@ fun MapsScreen(
     val cameraPositionState = rememberCameraPositionState { position = CameraPosition.fromLatLngZoom(LatLng(1.35, 103.87), 10f) }
 
     // -- EDIT LOCATION FORM STATE --
-    var radius by remember { mutableFloatStateOf(100f) }
+    var radius by remember { mutableFloatStateOf(DEFAULT_RADIUS) }
     var alarmSoundUri by remember { mutableStateOf(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString()) }
     var alarmName by remember { mutableStateOf("") }
     var selectedDays by remember { mutableStateOf(emptySet<Int>()) }
@@ -191,10 +198,16 @@ fun MapsScreen(
                                 val latLng = LatLng(address.latitude, address.longitude)
                                 cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(latLng, 15f))
                                 markerPosition = latLng
+                                LokAlertLogger.logLocationSearch(query, success = true)
                             } else {
+                                LokAlertLogger.logLocationSearch(query, success = false)
                                 Toast.makeText(context, "Location not found", Toast.LENGTH_SHORT).show()
                             }
-                        } catch (e: Exception) { e.printStackTrace() }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            LokAlertLogger.e("Location search failed for query: $query", throwable = e)
+                            Toast.makeText(context, "Failed to search location: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 },
                 onSuggestionClick = { suggestion ->
@@ -218,7 +231,10 @@ fun MapsScreen(
                             } else {
                                 Toast.makeText(context, "Location not found", Toast.LENGTH_SHORT).show()
                             }
-                        } catch (e: Exception) { e.printStackTrace() }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            Toast.makeText(context, "Failed to search location: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             )
@@ -250,11 +266,19 @@ fun MapsScreen(
                      Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         OutlinedTextField(
                             value = alarmName,
-                            onValueChange = { alarmName = it },
+                            onValueChange = { newValue ->
+                                // Limit alarm name to MAX_ALARM_NAME_LENGTH characters
+                                if (newValue.length <= MAX_ALARM_NAME_LENGTH) {
+                                    alarmName = newValue
+                                }
+                            },
                             label = { Text("Alarm Name") },
-                            placeholder = { Text("Time to wake up!") },
+                            placeholder = { Text(DEFAULT_ALARM_NAME) },
                             modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
+                            singleLine = true,
+                            supportingText = {
+                                Text("${alarmName.length}/$MAX_ALARM_NAME_LENGTH characters")
+                            }
                         )
 
                         Column {
@@ -292,7 +316,7 @@ fun MapsScreen(
                             radius = it 
                             isDraggingSlider = true
                         }, 
-                        valueRange = 100f..1000f,
+                        valueRange = MIN_RADIUS..MAX_RADIUS,
                         onValueChangeFinished = { isDraggingSlider = false }
                     )
                 }
@@ -313,21 +337,30 @@ fun MapsScreen(
                     Button(
                         onClick = {
                             markerPosition?.let { latLng ->
-                                val finalName = if (alarmName.isBlank()) "Time to wake up!" else alarmName
+                                val finalName = if (alarmName.isBlank()) DEFAULT_ALARM_NAME else alarmName.trim()
                                 scope.launch {
-                                    repository.insertAlarm(
-                                        LocationAlarm(
-                                            name = finalName,
-                                            latitude = latLng.latitude,
-                                            longitude = latLng.longitude,
-                                            radius = radius,
-                                            soundUri = alarmSoundUri,
-                                            isGradualVolume = isGradualVolume,
-                                            activeDays = selectedDays
+                                    try {
+                                        repository.insertAlarm(
+                                            LocationAlarm(
+                                                name = finalName,
+                                                latitude = latLng.latitude,
+                                                longitude = latLng.longitude,
+                                                radius = radius,
+                                                soundUri = alarmSoundUri,
+                                                isGradualVolume = isGradualVolume,
+                                                activeDays = selectedDays
+                                            )
                                         )
-                                    )
-                                    Toast.makeText(context, "Location Alarm Saved!", Toast.LENGTH_SHORT).show()
+                                        LokAlertLogger.logAlarmCreated(finalName, radius)
+                                        Toast.makeText(context, "Location Alarm Saved!", Toast.LENGTH_SHORT).show()
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        LokAlertLogger.e("Failed to save alarm", throwable = e)
+                                        Toast.makeText(context, "Failed to save alarm: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
+                            } ?: run {
+                                Toast.makeText(context, "Please set a location first", Toast.LENGTH_SHORT).show()
                             }
                             markerPosition = null
                             alarmName = ""

@@ -40,14 +40,20 @@ interface AlarmDao {
 // 3. Type Converters (To store the Set<Int> days as a String)
 class Converters {
     @TypeConverter
-    fun fromString(value: String): Set<Int> {
-        val listType = object : TypeToken<Set<Int>>() {}.type
-        return Gson().fromJson(value, listType)
+    fun fromString(value: String?): Set<Int> {
+        if (value.isNullOrBlank()) return emptySet()
+        return try {
+            val listType = object : TypeToken<Set<Int>>() {}.type
+            Gson().fromJson(value, listType) ?: emptySet()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptySet()
+        }
     }
 
     @TypeConverter
-    fun fromSet(set: Set<Int>): String {
-        return Gson().toJson(set)
+    fun fromSet(set: Set<Int>?): String {
+        return Gson().toJson(set ?: emptySet())
     }
 }
 

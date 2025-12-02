@@ -197,10 +197,19 @@ private fun EditLocationSheet(
 
             OutlinedTextField(
                 value = alarmName,
-                onValueChange = { alarmName = it },
+                onValueChange = { newValue ->
+                    // Limit alarm name to 50 characters
+                    if (newValue.length <= 50) {
+                        alarmName = newValue
+                    }
+                },
                 label = { Text("Alarm Name") },
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                singleLine = true,
+                supportingText = {
+                    Text("${alarmName.length}/50 characters")
+                },
+                isError = alarmName.isBlank(),
             )
             
             Column {
@@ -248,8 +257,12 @@ private fun EditLocationSheet(
 
                 Button(
                     onClick = {
+                        if (alarmName.isBlank()) {
+                            // Show error - name is required
+                            return@Button
+                        }
                         val updatedAlarm = alarm.copy(
-                            name = alarmName,
+                            name = alarmName.trim(),
                             radius = radius,
                             soundUri = alarmSoundUri,
                             activeDays = selectedDays,
@@ -257,7 +270,8 @@ private fun EditLocationSheet(
                         )
                         onSave(updatedAlarm)
                         scope.launch { sheetState.hide() }.invokeOnCompletion { onDismiss() }
-                    }
+                    },
+                    enabled = alarmName.isNotBlank()
                 ) { Text("Done") }
             }
         }

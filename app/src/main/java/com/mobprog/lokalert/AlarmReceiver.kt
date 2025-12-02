@@ -77,10 +77,22 @@ class AlarmReceiver : BroadcastReceiver() {
 
         // Play ringtone
         try {
-            ringtone = RingtoneManager.getRingtone(context, soundUri)
-            ringtone?.play()
+            ringtone = RingtoneManager.getRingtone(context, soundUri)?.apply {
+                play()
+            }
         } catch (e: Exception) {
             e.printStackTrace()
+            // Fallback to default alarm sound if custom sound fails
+            try {
+                ringtone = RingtoneManager.getRingtone(
+                    context, 
+                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                )?.apply {
+                    play()
+                }
+            } catch (fallbackException: Exception) {
+                fallbackException.printStackTrace()
+            }
         }
     }
 }
