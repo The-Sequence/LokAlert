@@ -5,13 +5,14 @@ import android.util.Log
 /**
  * Centralized logging utility for LokAlert application.
  * Provides consistent logging across the app with configurable log levels.
+ * Debug logging is automatically disabled in release builds.
  */
 object LokAlertLogger {
     
     private const val TAG = "LokAlert"
-    // Note: In production, you should use BuildConfig.DEBUG instead of a hardcoded value
-    // For now, manually set this to false before releasing
-    private var isDebugMode = true
+    // Debug logging is enabled only in debug builds
+    private val isDebugMode: Boolean
+        get() = BuildConfig.DEBUG
     
     /**
      * Log debug message

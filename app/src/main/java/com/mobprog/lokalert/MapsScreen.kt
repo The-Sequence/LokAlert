@@ -350,24 +350,27 @@ fun MapsScreen(
                                         )
                                         LokAlertLogger.logAlarmCreated(finalName, radius)
                                         Toast.makeText(context, "Location Alarm Saved!", Toast.LENGTH_SHORT).show()
+                                        
+                                        // Only reset form on successful save
+                                        markerPosition = null
+                                        alarmName = ""
+                                        selectedDays = emptySet()
+                                        isGradualVolume = false
+                                        alarmSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString()
+                                        
+                                        scope.launch { sheetState.hide() }.invokeOnCompletion { 
+                                            showBottomSheet = false
+                                            onDone()
+                                        }
                                     } catch (e: Exception) {
                                         e.printStackTrace()
                                         LokAlertLogger.e("Failed to save alarm", throwable = e)
                                         Toast.makeText(context, "Failed to save alarm: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        // Don't reset form or close sheet on error - let user retry
                                     }
                                 }
                             } ?: run {
                                 Toast.makeText(context, "Please set a location first", Toast.LENGTH_SHORT).show()
-                            }
-                            markerPosition = null
-                            alarmName = ""
-                            selectedDays = emptySet()
-                            isGradualVolume = false
-                            alarmSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString()
-                            
-                            scope.launch { sheetState.hide() }.invokeOnCompletion { 
-                                showBottomSheet = false
-                                onDone()
                             }
                         },
                     ) {
