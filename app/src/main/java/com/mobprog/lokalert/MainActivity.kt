@@ -174,11 +174,10 @@ fun LokAlertApp() {
 
     // --- Helper Functions ---
     fun addRecentSearch(location: String) {
-        val MAX_HISTORY = 5
         if (!recentSearches.contains(location)) {
             recentSearches = listOf(location) + recentSearches
-            if (recentSearches.size > MAX_HISTORY) {
-                recentSearches = recentSearches.take(MAX_HISTORY)
+            if (recentSearches.size > Constants.MAX_RECENT_SEARCHES) {
+                recentSearches = recentSearches.take(Constants.MAX_RECENT_SEARCHES)
             }
         }
     }
@@ -324,11 +323,20 @@ fun SettingsScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Title Color", color = if (isRainbowEnabled) Color.Gray else Color.Black)
+                Text(
+                    "Title Color", 
+                    color = if (isRainbowEnabled) 
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) 
+                    else 
+                        MaterialTheme.colorScheme.onSurface
+                )
                 Icon(
                     if (showColorOptions) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                     contentDescription = "Toggle Title Color Options",
-                    tint = if (isRainbowEnabled) Color.Gray else Color.Black
+                    tint = if (isRainbowEnabled) 
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    else 
+                        MaterialTheme.colorScheme.onSurface
                 )
             }
 

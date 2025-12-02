@@ -141,8 +141,8 @@ fun SearchSection(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.LocationOn,
-                                    contentDescription = null,
-                                    tint = Color.Gray,
+                                    contentDescription = "Location suggestion",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))

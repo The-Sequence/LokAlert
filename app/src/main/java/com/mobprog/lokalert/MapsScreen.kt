@@ -50,13 +50,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
 
-// Constants
-private const val MIN_RADIUS = 100f
-private const val MAX_RADIUS = 1000f
-private const val DEFAULT_RADIUS = 100f
-private const val MAX_ALARM_NAME_LENGTH = 50
-private const val DEFAULT_ALARM_NAME = "Time to wake up!"
-
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("MissingPermission")
 @Composable
@@ -88,7 +81,7 @@ fun MapsScreen(
     val cameraPositionState = rememberCameraPositionState { position = CameraPosition.fromLatLngZoom(LatLng(1.35, 103.87), 10f) }
 
     // -- EDIT LOCATION FORM STATE --
-    var radius by remember { mutableFloatStateOf(DEFAULT_RADIUS) }
+    var radius by remember { mutableFloatStateOf(Constants.DEFAULT_RADIUS) }
     var alarmSoundUri by remember { mutableStateOf(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString()) }
     var alarmName by remember { mutableStateOf("") }
     var selectedDays by remember { mutableStateOf(emptySet<Int>()) }
@@ -267,17 +260,17 @@ fun MapsScreen(
                         OutlinedTextField(
                             value = alarmName,
                             onValueChange = { newValue ->
-                                // Limit alarm name to MAX_ALARM_NAME_LENGTH characters
-                                if (newValue.length <= MAX_ALARM_NAME_LENGTH) {
+                                // Limit alarm name to Constants.MAX_ALARM_NAME_LENGTH characters
+                                if (newValue.length <= Constants.MAX_ALARM_NAME_LENGTH) {
                                     alarmName = newValue
                                 }
                             },
                             label = { Text("Alarm Name") },
-                            placeholder = { Text(DEFAULT_ALARM_NAME) },
+                            placeholder = { Text(Constants.DEFAULT_ALARM_NAME) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
                             supportingText = {
-                                Text("${alarmName.length}/$MAX_ALARM_NAME_LENGTH characters")
+                                Text("${alarmName.length}/${Constants.MAX_ALARM_NAME_LENGTH} characters")
                             }
                         )
 
@@ -301,7 +294,11 @@ fun MapsScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Gradual Volume", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                                Text("Alarm starts soft and gets louder", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                Text(
+                                    "Alarm starts soft and gets louder", 
+                                    style = MaterialTheme.typography.bodySmall, 
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                             Switch(checked = isGradualVolume, onCheckedChange = { isGradualVolume = it })
                         }
@@ -316,7 +313,7 @@ fun MapsScreen(
                             radius = it 
                             isDraggingSlider = true
                         }, 
-                        valueRange = MIN_RADIUS..MAX_RADIUS,
+                        valueRange = Constants.MIN_RADIUS..Constants.MAX_RADIUS,
                         onValueChangeFinished = { isDraggingSlider = false }
                     )
                 }
@@ -337,7 +334,7 @@ fun MapsScreen(
                     Button(
                         onClick = {
                             markerPosition?.let { latLng ->
-                                val finalName = if (alarmName.isBlank()) DEFAULT_ALARM_NAME else alarmName.trim()
+                                val finalName = if (alarmName.isBlank()) Constants.DEFAULT_ALARM_NAME else alarmName.trim()
                                 scope.launch {
                                     try {
                                         repository.insertAlarm(

@@ -59,7 +59,11 @@ fun LocationsScreen(
             modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
         )
         if (recentSearches.isEmpty()) {
-            Text("No recent searches.", color = Color.Gray)
+            Text(
+                "No recent searches.", 
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium
+            )
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)
@@ -93,7 +97,11 @@ fun LocationsScreen(
 
         if (alarms.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("You haven't added any locations yet.", color = Color.Gray)
+                Text(
+                    "You haven't added any locations yet.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxWidth()) {
@@ -198,8 +206,8 @@ private fun EditLocationSheet(
             OutlinedTextField(
                 value = alarmName,
                 onValueChange = { newValue ->
-                    // Limit alarm name to 50 characters
-                    if (newValue.length <= 50) {
+                    // Limit alarm name to Constants.MAX_ALARM_NAME_LENGTH characters
+                    if (newValue.length <= Constants.MAX_ALARM_NAME_LENGTH) {
                         alarmName = newValue
                     }
                 },
@@ -207,14 +215,14 @@ private fun EditLocationSheet(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 supportingText = {
-                    Text("${alarmName.length}/50 characters")
+                    Text("${alarmName.length}/${Constants.MAX_ALARM_NAME_LENGTH} characters")
                 },
                 isError = alarmName.isBlank(),
             )
             
             Column {
                 Text("Alert Radius: ${radius.toInt()} meters", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Slider(value = radius, onValueChange = { radius = it }, valueRange = 100f..1000f)
+                Slider(value = radius, onValueChange = { radius = it }, valueRange = Constants.MIN_RADIUS..Constants.MAX_RADIUS)
             }
             
             Column {
@@ -234,7 +242,11 @@ private fun EditLocationSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Gradual Volume", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                    Text("Alarm starts soft and gets louder", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Text(
+                        "Alarm starts soft and gets louder", 
+                        style = MaterialTheme.typography.bodySmall, 
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 Switch(checked = isGradualVolume, onCheckedChange = { isGradualVolume = it })
             }
@@ -372,7 +384,7 @@ fun SearchHistoryItem(location: String, isFavorite: Boolean, onToggleFavorite: (
             Icon(
                 Icons.Default.Favorite,
                 contentDescription = if (isFavorite) "Remove from Favorites" else "Add to Favorites",
-                tint = if (isFavorite) Color.Red else Color.Gray
+                tint = if (isFavorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

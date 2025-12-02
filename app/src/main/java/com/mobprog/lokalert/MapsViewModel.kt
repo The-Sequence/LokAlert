@@ -24,7 +24,7 @@ class MapsViewModel(application: Application) : AndroidViewModel(application) {
 
     // Form State
     var markerPosition by mutableStateOf<LatLng?>(null)
-    var radius by mutableFloatStateOf(100f)
+    var radius by mutableFloatStateOf(Constants.DEFAULT_RADIUS)
     var alarmName by mutableStateOf("")
     var alarmSoundUri by mutableStateOf("") // Initialize in UI or init block
     var selectedDays by mutableStateOf(emptySet<Int>())
@@ -35,7 +35,7 @@ class MapsViewModel(application: Application) : AndroidViewModel(application) {
     fun resetForm() {
         markerPosition = null
         alarmName = ""
-        radius = 100f
+        radius = Constants.DEFAULT_RADIUS
         selectedDays = emptySet()
         isGradualVolume = false
         showBottomSheet = false

@@ -9,7 +9,9 @@ import android.util.Log
 object LokAlertLogger {
     
     private const val TAG = "LokAlert"
-    private var isDebugMode = true // Set to false for production
+    // Note: In production, you should use BuildConfig.DEBUG instead of a hardcoded value
+    // For now, manually set this to false before releasing
+    private var isDebugMode = true
     
     /**
      * Log debug message
