@@ -1,7 +1,6 @@
 package com.mobprog.lokalert
 
 import android.app.Application
-import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -21,6 +20,7 @@ class MapsViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     var locationToFocus by mutableStateOf<LatLng?>(null)
+    var editingAlarmId by mutableStateOf<Int?>(null) // Track which alarm is being edited
 
     // Form State
     var markerPosition by mutableStateOf<LatLng?>(null)
@@ -39,6 +39,7 @@ class MapsViewModel(application: Application) : AndroidViewModel(application) {
         selectedDays = emptySet()
         isGradualVolume = false
         showBottomSheet = false
+        editingAlarmId = null
     }
 
     fun deleteLocation(alarm: LocationAlarm) {
@@ -90,6 +91,58 @@ class MapsViewModel(application: Application) : AndroidViewModel(application) {
                 radius = newRadius
             )
             dao.updateAlarm(updatedAlarm)
+        }
+    }
+    
+    fun updateAlarmAllDetails(
+        alarm: LocationAlarm, 
+        newName: String, 
+        newActiveDays: Set<Int>,
+        newSoundUri: String,
+        newIsGradualVolume: Boolean
+    ) {
+        viewModelScope.launch {
+            val updatedAlarm = alarm.copy(
+                name = newName.ifBlank { "Location Alarm" },
+                activeDays = newActiveDays,
+                soundUri = newSoundUri,
+                isGradualVolume = newIsGradualVolume
+            )
+            dao.updateAlarm(updatedAlarm)
+        }
+    }
+    
+    fun updateRadiusOnly(alarmId: Int, newRadius: Float) {
+        viewModelScope.launch {
+            val alarm = savedLocations.value.find { it.id == alarmId }
+            if (alarm != null) {
+                val updatedAlarm = alarm.copy(radius = newRadius)
+                dao.updateAlarm(updatedAlarm)
+            }
+        }
+    }
+    
+    // Update all alarm fields when editing from Locations screen
+    fun updateAlarmComplete(
+        alarmId: Int,
+        newName: String,
+        newActiveDays: Set<Int>,
+        newSoundUri: String,
+        newIsGradualVolume: Boolean,
+        newRadius: Float
+    ) {
+        viewModelScope.launch {
+            val alarm = savedLocations.value.find { it.id == alarmId }
+            if (alarm != null) {
+                val updatedAlarm = alarm.copy(
+                    name = newName.ifBlank { "Location Alarm" },
+                    activeDays = newActiveDays,
+                    soundUri = newSoundUri,
+                    isGradualVolume = newIsGradualVolume,
+                    radius = newRadius
+                )
+                dao.updateAlarm(updatedAlarm)
+            }
         }
     }
 }

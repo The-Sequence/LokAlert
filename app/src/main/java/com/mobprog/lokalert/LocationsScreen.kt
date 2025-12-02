@@ -6,8 +6,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Delete
@@ -16,7 +18,6 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.rounded.LocationOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,7 +25,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -116,13 +116,13 @@ fun LocationsScreen(
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             }
         }
+    }
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -203,15 +203,32 @@ fun LocationsScreen(
                 onDismiss = {
                     scope.launch { sheetState.hide() }.invokeOnCompletion { locationToEdit = null }
                 },
-                onSave = { name, radius ->
-                    viewModel.updateLocationDetails(locationToEdit!!, name, radius)
+                onSave = { name, activeDays, soundUri, isGradualVolume ->
+                    viewModel.updateAlarmAllDetails(
+                        locationToEdit!!, 
+                        name, 
+                        activeDays,
+                        soundUri,
+                        isGradualVolume
+                    )
                     scope.launch { sheetState.hide() }.invokeOnCompletion { locationToEdit = null }
                 },
-                onViewOnMap = {
-                    viewModel.locationToFocus = LatLng(locationToEdit!!.latitude, locationToEdit!!.longitude)
+                onEditRadius = {
+                    // Set all alarm data in viewModel so it persists when editing radius
+                    val savedLocation = LatLng(locationToEdit!!.latitude, locationToEdit!!.longitude)
+                    viewModel.markerPosition = savedLocation
+                    viewModel.locationToFocus = savedLocation // Ensure camera focuses on saved location
+                    viewModel.radius = locationToEdit!!.radius
+                    viewModel.alarmName = locationToEdit!!.name
+                    viewModel.selectedDays = locationToEdit!!.activeDays
+                    viewModel.alarmSoundUri = locationToEdit!!.soundUri
+                    viewModel.isGradualVolume = locationToEdit!!.isGradualVolume
+                    viewModel.editingAlarmId = locationToEdit!!.id
+                    viewModel.showBottomSheet = true
+                    
                     scope.launch { sheetState.hide() }.invokeOnCompletion {
                         locationToEdit = null
-                        onViewOnMap()
+                        onViewOnMap() // Navigate to Maps
                     }
                 }
             )
@@ -332,53 +349,87 @@ fun SavedLocationCard(
 }
 
 // Reuse EditLocationSheet from previous answer, or paste it here if needed
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditLocationSheet(
     alarm: LocationAlarm,
     onDismiss: () -> Unit,
-    onSave: (String, Float) -> Unit,
-    onViewOnMap: () -> Unit
+    onSave: (String, Set<Int>, String, Boolean) -> Unit,
+    onEditRadius: () -> Unit
 ) {
     var name by remember { mutableStateOf(alarm.name) }
-    var radius by remember { mutableFloatStateOf(alarm.radius) }
+    var activeDays by remember { mutableStateOf(alarm.activeDays) }
+    var alarmSoundUri by remember { mutableStateOf(alarm.soundUri) }
+    var isGradualVolume by remember { mutableStateOf(alarm.isGradualVolume) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    
+    val ringtonePicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        result.data?.getParcelableExtra<android.net.Uri>(android.media.RingtoneManager.EXTRA_RINGTONE_PICKED_URI)?.let {
+            alarmSoundUri = it.toString()
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp)
-            .padding(bottom = 48.dp),
+            .padding(bottom = 48.dp)
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-
-        Text("Edit Location", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text("Edit Alarm", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
-            label = { Text("Location Name") },
+            label = { Text("Alarm Name") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             shape = RoundedCornerShape(12.dp)
         )
-
+        
         Column {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Alert Radius", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                Text("${radius.toInt()}m", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Text("Active Days", fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            MapsDaySelector(activeDays) { activeDays = it }
+        }
+        
+        MapsPickerRow(
+            label = "Sound",
+            text = getMapRingtoneTitle(context, alarmSoundUri),
+            onClick = {
+                val intent = android.content.Intent(android.media.RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                    putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TYPE, android.media.RingtoneManager.TYPE_ALARM)
+                    putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, android.net.Uri.parse(alarmSoundUri))
+                }
+                ringtonePicker.launch(intent)
             }
-            Slider(value = radius, onValueChange = { radius = it }, valueRange = 100f..2000f)
+        )
+        
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Gradual Volume", modifier = Modifier.weight(1f))
+            Switch(
+                checked = isGradualVolume,
+                onCheckedChange = { isGradualVolume = it }
+            )
         }
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
+        
+        // Radius editing - redirects to Maps
         OutlinedButton(
-            onClick = onViewOnMap,
+            onClick = onEditRadius,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)
         ) {
             Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("View on Map")
+            Text("Edit Radius on Map (${alarm.radius.toInt()}m)")
         }
 
         Row(
@@ -388,16 +439,20 @@ fun EditLocationSheet(
             TextButton(
                 onClick = onDismiss,
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
             ) {
                 Text("Cancel")
             }
             Button(
-                onClick = { onSave(name, radius) },
+                onClick = { 
+                    // Save all fields except radius (edited separately via map)
+                    onSave(name, activeDays, alarmSoundUri, isGradualVolume)
+                },
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Save")
+                Text("Save Changes")
             }
         }
     }

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,6 +43,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -114,6 +116,48 @@ fun MapsScreen(
         result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)?.let { viewModel.alarmSoundUri = it.toString() }
     }
     
+    // State for pin replacement overlay
+    var searchedLocation by remember { mutableStateOf<LatLng?>(null) }
+    var searchedLocationName by remember { mutableStateOf("") }
+    var currentPinnedLocationName by remember { mutableStateOf("") }
+    var showPinReplaceOverlay by remember { mutableStateOf(false) }
+    var persistentPinnedLocationName by remember { mutableStateOf("") }
+    var manualNameUpdate by remember { mutableStateOf(false) }
+    
+    // Update persistent pinned location name when marker changes (only if not manually set)
+    LaunchedEffect(viewModel.markerPosition) {
+        if (!manualNameUpdate) {
+            viewModel.markerPosition?.let { position ->
+                // Add a small delay to ensure manual updates happen first
+                kotlinx.coroutines.delay(100)
+                
+                // Double-check flag hasn't been set during delay
+                if (!manualNameUpdate) {
+                    try {
+                        val geocoder = Geocoder(context)
+                        val results = withContext(Dispatchers.IO) {
+                            @Suppress("DEPRECATION")
+                            geocoder.getFromLocation(position.latitude, position.longitude, 1)
+                        }
+                        persistentPinnedLocationName = results?.firstOrNull()?.let { addr ->
+                            addr.featureName ?: addr.locality ?: addr.subAdminArea ?: "Pinned Location"
+                        } ?: "Pinned Location"
+                    } catch (e: Exception) {
+                        persistentPinnedLocationName = "Pinned Location"
+                    }
+                }
+            }
+        }
+    }
+    
+    // Separate effect to reset the manual flag
+    LaunchedEffect(manualNameUpdate) {
+        if (manualNameUpdate) {
+            kotlinx.coroutines.delay(1000)
+            manualNameUpdate = false
+        }
+    }
+    
     fun performSearch(query: String) {
         // 1. Report the search text back to the parent immediately
         onNewSearch(query)
@@ -129,7 +173,40 @@ fun MapsScreen(
                 if (!results.isNullOrEmpty()) {
                     val location = results[0]
                     val target = LatLng(location.latitude, location.longitude)
-                    cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(target, 15f))
+                    
+                    // Check if there's already a pin set
+                    if (viewModel.markerPosition != null) {
+                        // Get current pinned location name
+                        val currentResults = withContext(Dispatchers.IO) {
+                            @Suppress("DEPRECATION")
+                            geocoder.getFromLocation(viewModel.markerPosition!!.latitude, viewModel.markerPosition!!.longitude, 1)
+                        }
+                        currentPinnedLocationName = currentResults?.firstOrNull()?.let { addr ->
+                            addr.featureName ?: addr.locality ?: addr.subAdminArea ?: "Unknown Location"
+                        } ?: "Pinned Location"
+                        
+                        // Store searched location and show overlay
+                        searchedLocation = target
+                        searchedLocationName = query
+                        showPinReplaceOverlay = true
+                        
+                        // Animate camera to the searched location
+                        cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(target, 15f))
+                    } else {
+                        // No existing pin, directly set new pin and animate
+                        viewModel.markerPosition = target
+                        
+                        // Auto-populate alarm name with first two words
+                        val words = query.split(" ", ",", "-")
+                        viewModel.alarmName = words.take(2).joinToString(" ").trim()
+                        
+                        // Update persistent info bar immediately
+                        persistentPinnedLocationName = query
+                        manualNameUpdate = true // Prevent LaunchedEffect from overwriting
+                        
+                        // Animate camera to the searched location
+                        cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(target, 15f))
+                    }
                 } else {
                     Toast.makeText(context, "Location not found", Toast.LENGTH_SHORT).show()
                 }
@@ -192,12 +269,83 @@ fun MapsScreen(
                 onMapLongClick = { latLng ->
                     viewModel.markerPosition = latLng
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    
+                    // Geocode and update alarm name
+                    scope.launch {
+                        try {
+                            val geocoder = Geocoder(context)
+                            val results = withContext(Dispatchers.IO) {
+                                @Suppress("DEPRECATION")
+                                geocoder.getFromLocation(latLng.latitude, latLng.longitude, 1)
+                            }
+                            val locationName = results?.firstOrNull()?.let { addr ->
+                                addr.featureName ?: addr.locality ?: addr.subAdminArea ?: "Pinned Location"
+                            } ?: "Pinned Location"
+                            
+                            // Auto-populate alarm name with first two words
+                            val words = locationName.split(" ", ",", "-")
+                            viewModel.alarmName = words.take(2).joinToString(" ").trim()
+                            
+                            // Update persistent info bar
+                            persistentPinnedLocationName = locationName
+                            manualNameUpdate = true
+                        } catch (e: Exception) {
+                            persistentPinnedLocationName = "Pinned Location"
+                        }
+                    }
                 }
             ) {
+                // Always show pin with radius circle when markerPosition is set
                 viewModel.markerPosition?.let { position ->
-                    val markerState = rememberMarkerState(position = position)
-                    // Sync drag
-                    if (markerState.dragState == DragState.END) { viewModel.markerPosition = markerState.position }
+                    // Use stable key so marker updates instead of recreating
+                    val markerState = rememberMarkerState(key = "alarm_pin", position = position)
+                    
+                    // Track if user is dragging to prevent position updates during drag
+                    var isDragging by remember { mutableStateOf(false) }
+                    
+                    // Only update marker position when not dragging
+                    LaunchedEffect(position) {
+                        if (!isDragging && markerState.position != position) {
+                            markerState.position = position
+                        }
+                    }
+                    
+                    // Handle drag events
+                    LaunchedEffect(markerState.dragState) {
+                        when (markerState.dragState) {
+                            DragState.START -> {
+                                isDragging = true
+                            }
+                            DragState.END -> {
+                                isDragging = false
+                                val newPosition = markerState.position
+                                viewModel.markerPosition = newPosition
+                                
+                                // Geocode and update alarm name and persistent location name
+                                try {
+                                    val geocoder = Geocoder(context)
+                                    val results = withContext(Dispatchers.IO) {
+                                        @Suppress("DEPRECATION")
+                                        geocoder.getFromLocation(newPosition.latitude, newPosition.longitude, 1)
+                                    }
+                                    val locationName = results?.firstOrNull()?.let { addr ->
+                                        addr.featureName ?: addr.locality ?: addr.subAdminArea ?: "Pinned Location"
+                                    } ?: "Pinned Location"
+                                    
+                                    // Auto-populate alarm name with first two words
+                                    val words = locationName.split(" ", ",", "-")
+                                    viewModel.alarmName = words.take(2).joinToString(" ").trim()
+                                    
+                                    // Update persistent info bar
+                                    persistentPinnedLocationName = locationName
+                                    manualNameUpdate = true
+                                } catch (e: Exception) {
+                                    persistentPinnedLocationName = "Pinned Location"
+                                }
+                            }
+                            else -> {}
+                        }
+                    }
 
                     Marker(state = markerState, title = "Selected Location", draggable = true)
                     Circle(
@@ -211,20 +359,143 @@ fun MapsScreen(
             }
 
             Box(modifier = Modifier.align(Alignment.TopCenter)) {
-                SearchSection(
-                    onSearch = { query -> performSearch(query) },
-                    onSuggestionClick = { suggestion -> performSearch(suggestion) }
-                )
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    SearchSection(
+                        onSearch = { query -> performSearch(query) },
+                        onSuggestionClick = { suggestion -> performSearch(suggestion) }
+                    )
+                    
+                    // Persistent pinned location info bar
+                    if (viewModel.markerPosition != null && !showPinReplaceOverlay) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth(0.85f)
+                                .padding(top = 8.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.9f)
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Place,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "Pinned: $persistentPinnedLocationName",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Pin replacement overlay - below search bar and info bar
+            if (showPinReplaceOverlay && searchedLocation != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 180.dp) // Below search bar + info bar
+                        .fillMaxWidth(0.75f) // Smaller width
+                ) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f) // More transparent
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "📍 Pinned: $currentPinnedLocationName",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            )
+                            
+                            Button(
+                                onClick = {
+                                    // Replace pin with searched location FIRST
+                                    viewModel.markerPosition = searchedLocation
+                                    
+                                    // Update persistent info bar immediately
+                                    persistentPinnedLocationName = searchedLocationName
+                                    manualNameUpdate = true // Prevent LaunchedEffect from overwriting
+                                    
+                                    // Auto-populate alarm name with first two words
+                                    val words = searchedLocationName.split(" ", ",", "-")
+                                    viewModel.alarmName = words.take(2).joinToString(" ").trim()
+                                    
+                                    // Close overlay and clear search state
+                                    showPinReplaceOverlay = false
+                                    searchedLocation = null
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Place,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "Set to: $searchedLocationName",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                            
+                            TextButton(
+                                onClick = {
+                                    showPinReplaceOverlay = false
+                                    searchedLocation = null // Clear preview when keeping current
+                                },
+                                contentPadding = PaddingValues(vertical = 4.dp)
+                            ) {
+                                Text("Keep Current", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 
     // --- Bottom Sheet Form ---
     if (viewModel.showBottomSheet) {
+        // Clear searchedLocation when bottom sheet opens to ensure clean state
+        LaunchedEffect(Unit) {
+            searchedLocation = null
+        }
+        
         var sliderActive by remember { mutableStateOf(false) }
         val sheetAlpha = if (sliderActive) 0.5f else 1f
-        val scrimAlpha = if (sliderActive) 0.25f else 0.32f
-        
+        val scrimAlpha = if (sliderActive) 0.05f else 0.32f
         val windowTransition = updateTransition(targetState = sliderActive, label = "WindowFoldTransition")
         val sheetMaxHeight by windowTransition.animateDp(
             label = "SheetMaxHeight",
@@ -233,7 +504,7 @@ fun MapsScreen(
                     // Folding down - smooth with slight bounce
                     spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessLow)
                 } else {
-                    // Folding up - smooth, no bounce
+                    // Folding up - smooth, no bounce - SYNCED with content
                     spring(dampingRatio = 1f, stiffness = Spring.StiffnessMedium)
                 }
             }
@@ -261,15 +532,40 @@ fun MapsScreen(
                     },
                     onCancel = {
                         viewModel.resetForm()
+                        searchedLocation = null // Clear preview pin when canceling
                         scope.launch { sheetState.hide() }.invokeOnCompletion { viewModel.showBottomSheet = false }
                     },
-                    onSave = {
+                onSave = {
+                    // Check if we're editing an existing alarm (from Locations)
+                    if (viewModel.editingAlarmId != null) {
+                        // Update ALL alarm fields (name, days, sound, gradual volume, radius)
+                        viewModel.updateAlarmComplete(
+                            alarmId = viewModel.editingAlarmId!!,
+                            newName = viewModel.alarmName,
+                            newActiveDays = viewModel.selectedDays,
+                            newSoundUri = viewModel.alarmSoundUri,
+                            newIsGradualVolume = viewModel.isGradualVolume,
+                            newRadius = viewModel.radius
+                        )
+                        viewModel.resetForm()
+                        searchedLocation = null // Clear preview pin after saving
+                        scope.launch { sheetState.hide() }.invokeOnCompletion {
+                            // Smooth delay then return to Locations
+                            scope.launch {
+                                kotlinx.coroutines.delay(300)
+                                onDone()
+                            }
+                        }
+                    } else {
+                        // Normal save - new alarm
                         viewModel.saveAlarm {
+                            searchedLocation = null // Clear preview pin after saving
                             scope.launch { sheetState.hide() }.invokeOnCompletion {
                                 onDone()
                             }
                         }
-                    },
+                    }
+                },
                     onSliderActiveChange = { sliderActive = it }
                 )
             }
@@ -372,6 +668,21 @@ fun EditLocationForm(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
+                
+                // Clear button as clickable text link
+                if (viewModel.alarmName.isNotEmpty()) {
+                    TextButton(
+                        onClick = { viewModel.alarmName = "" },
+                        modifier = Modifier.padding(start = 0.dp),
+                        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            "Clear",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
 
                 Column {
                     Text("Active Days", fontWeight = FontWeight.SemiBold)

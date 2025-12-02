@@ -131,6 +131,7 @@ fun LokAlertApp() {
     var currentScreen by remember { mutableStateOf("Maps") }
     var titleColor by remember { mutableStateOf(Color(0xFF006DFF)) }
     var isRainbowEffectEnabled by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     val mapsViewModel: MapsViewModel = viewModel()
 
@@ -199,7 +200,13 @@ fun LokAlertApp() {
             when (currentScreen) {
                 "Maps" -> MapsScreen(
                     onNewSearch = { query -> addRecentSearch(query) },
-                    onDone = { currentScreen = "Locations" }, // Navigate after saving alarm
+                    onDone = { 
+                        // Smooth transition with slight delay for visual feedback
+                        scope.launch {
+                            kotlinx.coroutines.delay(300) // Allow sheet close animation to complete
+                            currentScreen = "Locations"
+                        }
+                    },
                     viewModel = mapsViewModel
                 )
                 "Locations" -> LocationsScreen(
