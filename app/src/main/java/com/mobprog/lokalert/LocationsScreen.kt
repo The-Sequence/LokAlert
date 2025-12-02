@@ -3,6 +3,7 @@ package com.mobprog.lokalert
 import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.border
@@ -270,7 +271,7 @@ private fun EditLocationSheet(
                 Button(
                     onClick = {
                         if (alarmName.isBlank()) {
-                            // Show error - name is required
+                            Toast.makeText(context, "Alarm name cannot be empty", Toast.LENGTH_SHORT).show()
                             return@Button
                         }
                         val updatedAlarm = alarm.copy(
