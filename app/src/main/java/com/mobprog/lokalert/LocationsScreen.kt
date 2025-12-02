@@ -1,368 +1,404 @@
 package com.mobprog.lokalert
 
-import android.content.Intent
-import android.media.RingtoneManager
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.rounded.LocationOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.gms.maps.model.LatLng
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocationsScreen(
-    onViewOnMap: (LatLng) -> Unit, // Callback to show a location on the map
     recentSearches: List<String>,
+    onViewOnMap: () -> Unit,
     viewModel: MapsViewModel
 ) {
-    val context = LocalContext.current
-    val repository = remember { AlarmRepository(context) }
-    val alarms by repository.getAllAlarms().collectAsState(initial = emptyList())
-    
-    var alarmToEdit by remember { mutableStateOf<LocationAlarm?>(null) }
-    var showEditSheet by remember { mutableStateOf(false) }
+    val savedLocations by viewModel.savedLocations.collectAsState()
+
+
+    var showFavoritesOnly by remember { mutableStateOf(false) }
+
+    val displayedLocations = remember(savedLocations, showFavoritesOnly) {
+        if (showFavoritesOnly) {
+            savedLocations.filter { it.isFavorite }
+        } else {
+            savedLocations
+        }
+    }
+
+    // Bottom Sheet State
+    var locationToEdit by remember { mutableStateOf<LocationAlarm?>(null) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 20.dp), // Increased side padding
     ) {
-        // Recent Searches
-        Text(
-            "Recent Searches",
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
-        )
-        if (recentSearches.isEmpty()) {
-            Text("No recent searches.", color = Color.Gray)
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)
-            ) {
-                items(recentSearches) { search ->
-                    val isFavorite = alarms.any { it.name == search }
-                    SearchHistoryItem(
-                        location = search,
-                        isFavorite = isFavorite,
-                        onToggleFavorite = { 
-                            val alarm = alarms.find { it.name == search }
-                            if (alarm != null) {
-                                viewModel.toggleFavorite(alarm)
-                            }
-                         }
-                    )
-                    HorizontalDivider()
-                }
-            }
-        }
-        
+        // --- HEADER ---
         Spacer(modifier = Modifier.height(24.dp))
-
-        // My Locations
         Text(
             "My Locations",
-            fontSize = 24.sp,
+            style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 16.dp, bottom = 16.dp)
+            color = MaterialTheme.colorScheme.onBackground
         )
+        Spacer(modifier = Modifier.height(24.dp))
 
-        if (alarms.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("You haven't added any locations yet.", color = Color.Gray)
-            }
-        } else {
-            LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                items(alarms, key = { it.id }) { alarm ->
-                    LocationItem(
-                        alarm = alarm,
-                        onClick = {
-                            alarmToEdit = alarm
-                            showEditSheet = true
-                        }
-                    )
-                    HorizontalDivider()
-                }
-            }
-        }
-    }
-    
-    if (showEditSheet && alarmToEdit != null) {
-        EditLocationSheet(
-            alarm = alarmToEdit!!,
-            onDismiss = { showEditSheet = false },
-            onSave = { updatedAlarm ->
-                CoroutineScope(Dispatchers.IO).launch {
-                    repository.updateAlarm(updatedAlarm)
-                }
-            },
-            onDelete = {
-                CoroutineScope(Dispatchers.IO).launch {
-                    repository.deleteAlarm(it)
-                }
-            },
-            onViewOnMap = onViewOnMap
-        )
-    }
-}
-
-@Composable
-fun LocationItem(alarm: LocationAlarm, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(alarm.name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            Text(
-                "Radius: ${alarm.radius.toInt()}m", 
-                fontSize = 14.sp, 
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Icon(Icons.Default.Edit, contentDescription = "Edit Location")
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun EditLocationSheet(
-    alarm: LocationAlarm,
-    onDismiss: () -> Unit,
-    onSave: (LocationAlarm) -> Unit,
-    onDelete: (LocationAlarm) -> Unit,
-    onViewOnMap: (LatLng) -> Unit
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    var alarmName by remember { mutableStateOf(alarm.name) }
-    var radius by remember { mutableStateOf(alarm.radius) }
-    var selectedDays by remember { mutableStateOf(alarm.activeDays) }
-    var alarmSoundUri by remember { mutableStateOf(alarm.soundUri) }
-    var isGradualVolume by remember { mutableStateOf(alarm.isGradualVolume) }
-    var showSoundSelectionDialog by remember { mutableStateOf(false) }
-
-    val ringtonePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)?.let { alarmSoundUri = it.toString() }
-    }
-    val customFilePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let {
-            try {
-                context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                alarmSoundUri = it.toString()
-            } catch (e: Exception) { alarmSoundUri = it.toString() }
-        }
-    }
-
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Text("Edit Location", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-
-            OutlinedTextField(
-                value = alarmName,
-                onValueChange = { alarmName = it },
-                label = { Text("Alarm Name") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-            
-            Column {
-                Text("Alert Radius: ${radius.toInt()} meters", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Slider(value = radius, onValueChange = { radius = it }, valueRange = 100f..1000f)
-            }
-            
-            Column {
-                Text("Active Days", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Spacer(modifier = Modifier.height(8.dp))
-                LocationsDaySelector(selectedDays) { selectedDays = it }
-            }
-
-            LocationsPickerRow(label = "Alarm Sound", text = getMapRingtoneTitle(context, alarmSoundUri)) {
-                showSoundSelectionDialog = true
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth().clickable { isGradualVolume = !isGradualVolume }.padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Gradual Volume", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                    Text("Alarm starts soft and gets louder", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                }
-                Switch(checked = isGradualVolume, onCheckedChange = { isGradualVolume = it })
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(
-                    onClick = {
-                        onDelete(alarm)
-                        scope.launch { sheetState.hide() }.invokeOnCompletion { onDismiss() }
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) { Text("Delete") }
-                
-                Button(onClick = {
-                    onViewOnMap(LatLng(alarm.latitude, alarm.longitude))
-                    scope.launch { sheetState.hide() }.invokeOnCompletion { onDismiss() }
-                }) { Text("View on Map") }
-
-                Button(
-                    onClick = {
-                        val updatedAlarm = alarm.copy(
-                            name = alarmName,
-                            radius = radius,
-                            soundUri = alarmSoundUri,
-                            activeDays = selectedDays,
-                            isGradualVolume = isGradualVolume
-                        )
-                        onSave(updatedAlarm)
-                        scope.launch { sheetState.hide() }.invokeOnCompletion { onDismiss() }
-                    }
-                ) { Text("Done") }
-            }
-        }
-    }
-
-    if (showSoundSelectionDialog) {
-        AlertDialog(
-            onDismissRequest = { showSoundSelectionDialog = false },
-            title = { Text("Choose Sound Source") },
-            text = {
-                Column {
-                    TextButton(onClick = {
-                        showSoundSelectionDialog = false
-                        ringtonePickerLauncher.launch(
-                            Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
-                                putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
-                                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
-                                putExtra(RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
-                                putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(alarmSoundUri))
-                            }
-                        )
-                    }, modifier = Modifier.fillMaxWidth()) { Text("System Ringtones") }
-                    
-                    TextButton(onClick = {
-                        showSoundSelectionDialog = false
-                        customFilePickerLauncher.launch("audio/*")
-                    }, modifier = Modifier.fillMaxWidth()) { Text("Custom File (.mp3)") }
-                }
-            },
-            confirmButton = {},
-            dismissButton = { TextButton(onClick = { showSoundSelectionDialog = false }) { Text("Cancel") } }
-        )
-    }
-}
-
-@Composable
-private fun LocationsPickerRow(label: String, text: String, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .clip(RoundedCornerShape(4.dp))
-            .clickable(onClick = onClick)
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-            Text(text, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
-        }
-        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun LocationsDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        val daysOfWeek = listOf("S", "M", "T", "W", "T", "F", "S")
-        val calendarDays = listOf(Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY, Calendar.SATURDAY)
-
-        daysOfWeek.forEachIndexed { index, dayLabel ->
-            val day = calendarDays[index]
-            val isSelected = selectedDays.contains(day)
-            FilterChip(
-                selected = isSelected,
-                onClick = { onSelectionChange(if (isSelected) selectedDays - day else selectedDays + day) },
-                label = { Text(dayLabel) },
-                leadingIcon = if (isSelected) { { Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp)) } } else null
-            )
-        }
-    }
-}
-
-@Composable
-fun SearchHistoryItem(location: String, isFavorite: Boolean, onToggleFavorite: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { /* TODO: Implement navigation/search on click */ }
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
+        // --- SECTION 1: RECENT SEARCH HISTORY ---
+        // Visual Style: Low emphasis (Flat list, smaller text)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                Icons.Default.Place,
-                contentDescription = "Location",
-                modifier = Modifier.size(24.dp)
+                imageVector = Icons.Default.AccessTime,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp)
             )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(location, fontSize = 16.sp)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                "RECENT SEARCHES",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
+            )
         }
 
-        IconButton(onClick = onToggleFavorite) {
-            Icon(
-                Icons.Default.Favorite,
-                contentDescription = if (isFavorite) "Remove from Favorites" else "Add to Favorites",
-                tint = if (isFavorite) Color.Red else Color.Gray
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (recentSearches.isEmpty()) {
+            Text(
+                "No recent history.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.padding(start = 24.dp, bottom = 12.dp)
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 140.dp), // Limit height
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                itemsIndexed(recentSearches) { _, location ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = location,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- SECTION 2: SAVED LOCATIONS ---
+        // Visual Style: High Emphasis (Cards, Icons, Actions)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Saved Locations",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            // 3. NEW: The Toggle Switch
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Favorites Only",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (showFavoritesOnly) MaterialTheme.colorScheme.primary else Color.Gray
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Switch(
+                    checked = showFavoritesOnly,
+                    onCheckedChange = { showFavoritesOnly = it },
+                    modifier = Modifier.scale(0.8f) // Make it slightly smaller
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        if (displayedLocations.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                // Changing text based on filter context
+                val emptyText = if (showFavoritesOnly && displayedLocations.isNotEmpty()) {
+                    "No favorites found."
+                } else {
+                    "No pins set yet. Go to Map to add one!"
+                }
+                Text(emptyText, color = Color.Gray)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(bottom = 100.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp) // Gap between cards
+            ) {
+                items(displayedLocations, key = { it.id }) { alarm ->
+                    SavedLocationCard(
+                        alarm = alarm,
+                        onToggleFavorite = { viewModel.toggleFavorite(alarm) },
+                        onDelete = { viewModel.deleteLocation(alarm) },
+                        onEdit = { locationToEdit = alarm }
+                    )
+                }
+            }
+        }
+    }
+
+    // --- BOTTOM SHEET ---
+    if (locationToEdit != null) {
+        ModalBottomSheet(
+            onDismissRequest = { locationToEdit = null },
+            sheetState = sheetState
+        ) {
+            EditLocationSheet(
+                alarm = locationToEdit!!,
+                onDismiss = {
+                    scope.launch { sheetState.hide() }.invokeOnCompletion { locationToEdit = null }
+                },
+                onSave = { name, radius ->
+                    viewModel.updateLocationDetails(locationToEdit!!, name, radius)
+                    scope.launch { sheetState.hide() }.invokeOnCompletion { locationToEdit = null }
+                },
+                onViewOnMap = {
+                    viewModel.locationToFocus = LatLng(locationToEdit!!.latitude, locationToEdit!!.longitude)
+                    scope.launch { sheetState.hide() }.invokeOnCompletion {
+                        locationToEdit = null
+                        onViewOnMap()
+                    }
+                }
             )
         }
     }
 }
 
+// --- SUB-COMPONENTS ---
 
 
+
+@Composable
+fun SavedLocationCard(
+    alarm: LocationAlarm,
+    onToggleFavorite: () -> Unit,
+    onDelete: () -> Unit,
+    onEdit: () -> Unit
+) {
+    val isFav = alarm.isFavorite
+    val cardColor = MaterialTheme.colorScheme.surface
+    val borderColor = if (isFav) Color(0xFFFFD700) else Color.Transparent
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = cardColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                width = if (isFav) 1.5.dp else 0.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(16.dp)
+            )
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Left: Icon Bubble
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isFav) Color(0xFFFFD700).copy(alpha = 0.2f)
+                        else MaterialTheme.colorScheme.primaryContainer
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.Place,
+                    contentDescription = null,
+                    tint = if (isFav) Color(0xFFD4AF37) else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            // Middle: Info
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = alarm.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Map, // Or a radius icon
+                        contentDescription = null,
+                        modifier = Modifier.size(12.dp),
+                        tint = Color.Gray
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Radius: ${alarm.radius.toInt()}m",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Right: Actions
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onToggleFavorite) {
+                    Icon(
+                        imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = "Favorite",
+                        tint = if (isFav) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                IconButton(onClick = onEdit) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+// Reuse EditLocationSheet from previous answer, or paste it here if needed
+@Composable
+fun EditLocationSheet(
+    alarm: LocationAlarm,
+    onDismiss: () -> Unit,
+    onSave: (String, Float) -> Unit,
+    onViewOnMap: () -> Unit
+) {
+    var name by remember { mutableStateOf(alarm.name) }
+    var radius by remember { mutableFloatStateOf(alarm.radius) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp)
+            .padding(bottom = 48.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+
+        Text("Edit Location", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text("Location Name") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp)
+        )
+
+        Column {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Alert Radius", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text("${radius.toInt()}m", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            }
+            Slider(value = radius, onValueChange = { radius = it }, valueRange = 100f..2000f)
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+        OutlinedButton(
+            onClick = onViewOnMap,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("View on Map")
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Cancel")
+            }
+            Button(
+                onClick = { onSave(name, radius) },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Save")
+            }
+        }
+    }
+}

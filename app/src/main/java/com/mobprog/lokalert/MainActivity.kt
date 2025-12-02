@@ -200,6 +200,7 @@ fun LokAlertApp() {
                 "Maps" -> MapsScreen(
                     onNewSearch = { query -> addRecentSearch(query) },
                     onDone = { currentScreen = "Locations" }, // Navigate after saving alarm
+                    viewModel = mapsViewModel
                 )
                 "Locations" -> LocationsScreen(
                     recentSearches = recentSearches,

@@ -6,20 +6,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Geocoder
-import android.location.Location
 import android.media.RingtoneManager
 import android.net.Uri
-import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,16 +29,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.MapStyleOptions
 import com.google.maps.android.compose.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -55,339 +52,266 @@ import java.util.Calendar
 @Composable
 fun MapsScreen(
     onNewSearch: (String) -> Unit,
-    onDone: () -> Unit = {}
+    onDone: () -> Unit,
+    viewModel: MapsViewModel = viewModel(),
 ) {
+
+
     val context = LocalContext.current
-    val repository = remember { AlarmRepository(context) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
-    var showBottomSheet by remember { mutableStateOf(false) }
-    
-    // Map State
-    var uiSettings by remember { mutableStateOf(MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = false)) }
+    val hapticFeedback = LocalHapticFeedback.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Set default sound URI once on launch if empty
+    LaunchedEffect(Unit) {
+        if (viewModel.alarmSoundUri.isEmpty()) {
+            viewModel.alarmSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString()
+        }
+    }
+
+
+    // --- Permissions & Location Setup ---
     var hasLocationPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         )
     }
 
-    val mapProperties = remember(hasLocationPermission) {
-        MapProperties(isMyLocationEnabled = hasLocationPermission)
-    }
-
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
-    var markerPosition by remember { mutableStateOf<LatLng?>(null) }
     val cameraPositionState = rememberCameraPositionState { position = CameraPosition.fromLatLngZoom(LatLng(1.35, 103.87), 10f) }
 
-    // -- EDIT LOCATION FORM STATE --
-    var radius by remember { mutableFloatStateOf(100f) }
-    var alarmSoundUri by remember { mutableStateOf(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString()) }
-    var alarmName by remember { mutableStateOf("") }
-    var selectedDays by remember { mutableStateOf(emptySet<Int>()) }
-    var isGradualVolume by remember { mutableStateOf(false) }
-    var showSoundSelectionDialog by remember { mutableStateOf(false) }
-    var isDraggingSlider by remember { mutableStateOf(false) }
-
-    // Launchers
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         hasLocationPermission = it[Manifest.permission.ACCESS_FINE_LOCATION] == true || it[Manifest.permission.ACCESS_COARSE_LOCATION] == true
     }
-    
-    val ringtonePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)?.let { alarmSoundUri = it.toString() }
-    }
 
-    val customFilePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let {
-            try {
-                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(it, takeFlags)
-                alarmSoundUri = it.toString()
-            } catch (e: Exception) {
-                alarmSoundUri = it.toString()
-            }
-        }
-    }
-
-    // Initial Location Check
+    // Move to user location on load
     LaunchedEffect(hasLocationPermission) {
         if (hasLocationPermission) {
-            fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
-                location?.let {
-                    val userLatLng = LatLng(it.latitude, it.longitude)
-                    cameraPositionState.position = CameraPosition.fromLatLngZoom(userLatLng, 16f)
-                }
+            fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
+                loc?.let { cameraPositionState.position = CameraPosition.fromLatLngZoom(LatLng(it.latitude, it.longitude), 16f) }
             }
         }
     }
 
+    // --- Map Style ---
+    val isDarkTheme = isSystemInDarkTheme()
+    val mapProperties = remember(isDarkTheme, hasLocationPermission) {
+        MapProperties(
+            isMyLocationEnabled = hasLocationPermission,
+            mapStyleOptions = if (isDarkTheme) MapStyleOptions.loadRawResourceStyle(context, R.raw.map_style_dark) else null
+        )
+    }
+
+    // --- File Pickers ---
+    val ringtonePicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)?.let { viewModel.alarmSoundUri = it.toString() }
+    }
+
+    fun performSearch(query: String) {
+        // 1. FIX: Report the search text back to the parent immediately
+        onNewSearch(query)
+
+        scope.launch {
+            try {
+                val geocoder = Geocoder(context)
+                val results = withContext(Dispatchers.IO) {
+                    @Suppress("DEPRECATION")
+                    geocoder.getFromLocationName(query, 1)
+                }
+
+                if (!results.isNullOrEmpty()) {
+                    val location = results[0]
+                    val target = LatLng(location.latitude, location.longitude)
+
+                    cameraPositionState.animate(
+                        CameraUpdateFactory.newLatLngZoom(target, 15f)
+                    )
+                } else {
+                    Toast.makeText(context, "Location not found", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(context, "Error searching location", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    LaunchedEffect(viewModel.locationToFocus) {
+        viewModel.locationToFocus?.let { target ->
+            // Move camera to the selected saved location
+            cameraPositionState.animate(
+                CameraUpdateFactory.newLatLngZoom(target, 16f)
+            )
+            // Reset the focus so it doesn't trigger again on rotation/recomposition
+            viewModel.locationToFocus = null
+        }
+    }
+
+    // --- UI Structure ---
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp),
         floatingActionButton = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.End) {
+                // My Location FAB
                 SmallFloatingActionButton(
-                    onClick = { 
+                    onClick = {
                         if (hasLocationPermission) {
-                            fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
-                                location?.let {
-                                    scope.launch { cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(LatLng(it.latitude, it.longitude), 16f)) }
-                                }
+                            fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
+                                loc?.let { scope.launch { cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(LatLng(it.latitude, it.longitude), 16f)) } }
                             }
                         } else {
                             permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                         }
                     },
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                ) { Icon(Icons.Default.MyLocation, "Device location") }
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                ) { Icon(Icons.Default.MyLocation, "My Location") }
 
+                // Set Pin FAB
                 ExtendedFloatingActionButton(
                     onClick = {
-                        if (markerPosition == null) {
-                            markerPosition = cameraPositionState.position.target
-                            Toast.makeText(context, "Location set! Edit details below.", Toast.LENGTH_SHORT).show()
-                            showBottomSheet = true
+                        if (viewModel.markerPosition == null) {
+                            // Set pin at center target
+                            viewModel.markerPosition = cameraPositionState.position.target
+                            viewModel.showBottomSheet = true
                         } else {
-                            showBottomSheet = true
+                            viewModel.showBottomSheet = true
                         }
                     },
                     icon = { Icon(Icons.Filled.PushPin, "Set Pin") },
-                    text = { Text(if (markerPosition == null) "Set Pin" else "Edit Pin") }
+                    text = { Text(if (viewModel.markerPosition == null) "Set Pin" else "Edit Pin") }
                 )
             }
         }
-    ) { paddingValues -> 
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+    ) { padding ->
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             GoogleMap(
                 modifier = Modifier.fillMaxSize(),
                 cameraPositionState = cameraPositionState,
                 properties = mapProperties,
-                uiSettings = uiSettings,
-                onMapClick = { markerPosition = it }
+                uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = false),
+                onMapLongClick = { latLng ->
+                    viewModel.markerPosition = latLng
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
             ) {
-                markerPosition?.let { position ->
+                viewModel.markerPosition?.let { position ->
                     val markerState = rememberMarkerState(position = position)
-                    if (markerState.dragState == DragState.END) { markerPosition = markerState.position }
+                    // Sync drag
+                    if (markerState.dragState == DragState.END) { viewModel.markerPosition = markerState.position }
+
                     Marker(state = markerState, title = "Selected Location", draggable = true)
-                    Circle(center = markerState.position, radius = radius.toDouble(), strokeColor = MaterialTheme.colorScheme.primary, strokeWidth = 2f, fillColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                    Circle(
+                        center = markerState.position,
+                        radius = viewModel.radius.toDouble(),
+                        strokeColor = MaterialTheme.colorScheme.primary,
+                        fillColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                        strokeWidth = 2f
+                    )
                 }
             }
-            SearchSection(
-                onSearch = { query ->
-                    onNewSearch(query)
-                    scope.launch {
-                        try {
-                            val geocoder = Geocoder(context)
-                            val addresses = withContext(Dispatchers.IO) {
-                                @Suppress("DEPRECATION")
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    geocoder.getFromLocationName(query, 1)
-                                } else {
-                                    geocoder.getFromLocationName(query, 1)
-                                }
-                            }
-                            if (!addresses.isNullOrEmpty()) {
-                                val address = addresses[0]
-                                val latLng = LatLng(address.latitude, address.longitude)
-                                cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(latLng, 15f))
-                                markerPosition = latLng
-                            } else {
-                                Toast.makeText(context, "Location not found", Toast.LENGTH_SHORT).show()
-                            }
-                        } catch (e: Exception) { e.printStackTrace() }
+
+            Box(modifier = Modifier.align(Alignment.TopCenter)) {
+                SearchSection(
+                    onSearch = { query -> performSearch(query) },
+                    onSuggestionClick = { suggestion -> performSearch(suggestion) }
+                )
+            }
+        }
+    }
+
+    // --- Bottom Sheet Form ---
+    if (viewModel.showBottomSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { viewModel.showBottomSheet = false },
+            sheetState = sheetState
+        ) {
+            EditLocationForm(
+                viewModel = viewModel,
+                onPickRingtone = {
+                    val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(viewModel.alarmSoundUri))
                     }
+                    ringtonePicker.launch(intent)
                 },
-                onSuggestionClick = { suggestion ->
-                    onNewSearch(suggestion)
-                    scope.launch {
-                        try {
-                            val geocoder = Geocoder(context)
-                            val addresses = withContext(Dispatchers.IO) {
-                                @Suppress("DEPRECATION")
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    geocoder.getFromLocationName(suggestion, 1)
-                                } else {
-                                    geocoder.getFromLocationName(suggestion, 1)
-                                }
-                            }
-                            if (!addresses.isNullOrEmpty()) {
-                                val address = addresses[0]
-                                val latLng = LatLng(address.latitude, address.longitude)
-                                cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(latLng, 15f))
-                                markerPosition = latLng // Set the pin on suggestion click
-                            } else {
-                                Toast.makeText(context, "Location not found", Toast.LENGTH_SHORT).show()
-                            }
-                        } catch (e: Exception) { e.printStackTrace() }
+                onCancel = {
+                    viewModel.resetForm()
+                    scope.launch { sheetState.hide() }.invokeOnCompletion { viewModel.showBottomSheet = false }
+                },
+                onSave = {
+                    viewModel.saveAlarm {
+                        scope.launch { sheetState.hide() }.invokeOnCompletion {
+                            onDone()
+                        }
                     }
                 }
             )
         }
     }
+}
 
-    if (showBottomSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showBottomSheet = false },
-            sheetState = sheetState,
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = if (isDraggingSlider) 0.8f else 1.0f),
-            scrimColor = if (isDraggingSlider) Color.Transparent else BottomSheetDefaults.ScrimColor
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Always visible section (Title and Slider)
-                Text("Edit Location", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+// --- EXTRACTED COMPOSABLES AND HELPERS ---
 
-                AnimatedVisibility(
-                    visible = !isDraggingSlider, 
-                    enter = fadeIn(animationSpec = tween(300)), 
-                    exit = fadeOut(animationSpec = tween(0))
-                ) {
-                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        OutlinedTextField(
-                            value = alarmName,
-                            onValueChange = { alarmName = it },
-                            label = { Text("Alarm Name") },
-                            placeholder = { Text("Time to wake up!") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
+@Composable
+fun EditLocationForm(
+    viewModel: MapsViewModel,
+    onPickRingtone: () -> Unit,
+    onCancel: () -> Unit,
+    onSave: () -> Unit
+) {
+    val context = LocalContext.current
 
-                        Column {
-                            Text("Active Days", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            MapsDaySelector(selectedDays) { selectedDays = it }
-                        }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("Edit Location", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
-                        MapsPickerRow(label = "Alarm Sound", text = getMapRingtoneTitle(context, alarmSoundUri)) {
-                            showSoundSelectionDialog = true
-                        }
+        OutlinedTextField(
+            value = viewModel.alarmName,
+            onValueChange = { viewModel.alarmName = it },
+            label = { Text("Alarm Name") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { isGradualVolume = !isGradualVolume }
-                                .padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Gradual Volume", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                                Text("Alarm starts soft and gets louder", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                            }
-                            Switch(checked = isGradualVolume, onCheckedChange = { isGradualVolume = it })
-                        }
-                     }
-                }
-                
-                Column {
-                    Text("Alert Radius: ${radius.toInt()} meters", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                    Slider(
-                        value = radius, 
-                        onValueChange = { 
-                            radius = it 
-                            isDraggingSlider = true
-                        }, 
-                        valueRange = 100f..1000f,
-                        onValueChangeFinished = { isDraggingSlider = false }
-                    )
-                }
+        Column {
+            Text("Radius: ${viewModel.radius.toInt()}m", fontWeight = FontWeight.SemiBold)
+            Slider(value = viewModel.radius, onValueChange = { viewModel.radius = it }, valueRange = 100f..2000f)
+        }
 
-                Spacer(modifier = Modifier.height(8.dp))
+        Text("Active Days", fontWeight = FontWeight.SemiBold)
+        MapsDaySelector(viewModel.selectedDays) { viewModel.selectedDays = it }
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    TextButton(
-                        onClick = {
-                            markerPosition = null
-                            scope.launch { sheetState.hide() }.invokeOnCompletion { showBottomSheet = false }
-                        },
-                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Text("Remove Pin")
-                    }
+        MapsPickerRow(
+            label = "Sound",
+            text = getMapRingtoneTitle(context, viewModel.alarmSoundUri),
+            onClick = onPickRingtone
+        )
 
-                    Button(
-                        onClick = {
-                            markerPosition?.let { latLng ->
-                                val finalName = if (alarmName.isBlank()) "Time to wake up!" else alarmName
-                                scope.launch {
-                                    repository.insertAlarm(
-                                        LocationAlarm(
-                                            name = finalName,
-                                            latitude = latLng.latitude,
-                                            longitude = latLng.longitude,
-                                            radius = radius,
-                                            soundUri = alarmSoundUri,
-                                            isGradualVolume = isGradualVolume,
-                                            activeDays = selectedDays
-                                        )
-                                    )
-                                    Toast.makeText(context, "Location Alarm Saved!", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                            markerPosition = null
-                            alarmName = ""
-                            selectedDays = emptySet()
-                            isGradualVolume = false
-                            alarmSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString()
-                            
-                            scope.launch { sheetState.hide() }.invokeOnCompletion { 
-                                showBottomSheet = false
-                                onDone()
-                            }
-                        },
-                    ) {
-                        Text("Done")
-                    }
-                }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Gradual Volume", modifier = Modifier.weight(1f))
+            Switch(checked = viewModel.isGradualVolume, onCheckedChange = { viewModel.isGradualVolume = it })
+        }
+
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            TextButton(onClick = onCancel, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                Text("Remove")
+            }
+            Button(onClick = onSave) {
+                Text("Save Alarm")
             }
         }
-    }
-    
-    if (showSoundSelectionDialog) {
-        AlertDialog(
-            onDismissRequest = { showSoundSelectionDialog = false },
-            title = { Text("Choose Sound Source") },
-            text = {
-                Column {
-                    TextButton(
-                        onClick = {
-                            showSoundSelectionDialog = false
-                            ringtonePickerLauncher.launch(
-                                Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
-                                    putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
-                                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
-                                    putExtra(RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
-                                    putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(alarmSoundUri))
-                                }
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("System Ringtones") }
-                    
-                    TextButton(
-                        onClick = {
-                            showSoundSelectionDialog = false
-                            customFilePickerLauncher.launch("audio/*")
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Custom File (.mp3)") }
-                }
-            },
-            confirmButton = {},
-            dismissButton = { TextButton(onClick = { showSoundSelectionDialog = false }) { Text("Cancel") } }
-        )
+        Spacer(Modifier.height(32.dp))
     }
 }
 
-
-// Private helper to avoid ambiguity with MainActivity
 @Composable
-private fun MapsPickerRow(label: String, text: String, onClick: () -> Unit) {
+fun MapsPickerRow(label: String, text: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -407,13 +331,12 @@ private fun MapsPickerRow(label: String, text: String, onClick: () -> Unit) {
     }
 }
 
-// Private helper to avoid ambiguity with MainActivity
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MapsDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) -> Unit) {
+fun MapsDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) -> Unit) {
     Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         val daysOfWeek = listOf("S", "M", "T", "W", "T", "F", "S")
-        val calendarDays = listOf(java.util.Calendar.SUNDAY, java.util.Calendar.MONDAY, java.util.Calendar.TUESDAY, java.util.Calendar.WEDNESDAY, java.util.Calendar.THURSDAY, java.util.Calendar.FRIDAY, java.util.Calendar.SATURDAY)
+        val calendarDays = listOf(Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY, Calendar.SATURDAY)
 
         daysOfWeek.forEachIndexed { index, dayLabel ->
             val day = calendarDays[index]
@@ -428,8 +351,8 @@ private fun MapsDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>
     }
 }
 
-// Private helper to avoid ambiguity
 fun getMapRingtoneTitle(context: Context, ringtoneUriString: String): String {
+    if (ringtoneUriString.isEmpty()) return "Default Sound"
     return try {
         val uri = Uri.parse(ringtoneUriString)
         RingtoneManager.getRingtone(context, uri)?.getTitle(context)
