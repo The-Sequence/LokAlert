@@ -1,7 +1,6 @@
 package com.mobprog.lokalert
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -44,6 +43,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +51,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -93,7 +94,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.libraries.places.api.Places
 import com.mobprog.lokalert.ui.theme.LokAlertTheme
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 
@@ -199,100 +199,13 @@ fun LokAlertAppEntryPoint() {
             // Onboarding completed AND permissions granted
             val context = LocalContext.current
             
-            // Start in-app location tracking for proximity alarms
+            // Start foreground location tracking service
             LaunchedEffect(Unit) {
-                startLocationTracking(context)
+                LocationTrackingService.startService(context)
             }
             
             LokAlertApp()
         }
-    }
-}
-
-private suspend fun startLocationTracking(context: Context) {
-    val database = LokAlertDatabase.getDatabase(context)
-    val fusedLocationClient = com.google.android.gms.location.LocationServices
-        .getFusedLocationProviderClient(context)
-    
-    // Track which alarms have been triggered recently (cooldown)
-    val triggeredAlarms = mutableMapOf<Int, Long>()
-    val cooldownPeriod = 5 * 60 * 1000L // 5 minutes cooldown
-    
-    // Check location every 10 seconds
-    while (true) {
-        try {
-            if (ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.ACCESS_FINE_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED
-            ) {
-                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                    location?.let { currentLoc ->
-                        // Check proximity to all enabled alarms
-                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                            val alarms = database.alarmDao().getAllAlarms().first()
-                            val currentDay = java.util.Calendar.getInstance()
-                                .get(java.util.Calendar.DAY_OF_WEEK)
-                            val currentTime = System.currentTimeMillis()
-                            
-                            alarms.filter { it.isEnabled }.forEach { alarm ->
-                                // Check if alarm is active for today
-                                if (alarm.activeDays.isEmpty() || alarm.activeDays.contains(currentDay)) {
-                                    // Check cooldown
-                                    val lastTriggered = triggeredAlarms[alarm.id] ?: 0L
-                                    if (currentTime - lastTriggered > cooldownPeriod) {
-                                        val alarmLocation = android.location.Location("").apply {
-                                            latitude = alarm.latitude
-                                            longitude = alarm.longitude
-                                        }
-                                        val userLocation = android.location.Location("").apply {
-                                            latitude = currentLoc.latitude
-                                            longitude = currentLoc.longitude
-                                        }
-                                        
-                                        val distance = userLocation.distanceTo(alarmLocation)
-                                        
-                                        // If within radius, trigger alarm
-                                        if (distance <= alarm.radius) {
-                                            triggeredAlarms[alarm.id] = currentTime
-                                            kotlinx.coroutines.CoroutineScope(
-                                                kotlinx.coroutines.Dispatchers.Main
-                                            ).launch {
-                                                triggerLocationAlarm(context, alarm, distance)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        
-        // Wait 10 seconds before next check
-        kotlinx.coroutines.delay(10000)
-    }
-}
-
-private fun triggerLocationAlarm(context: Context, alarm: LocationAlarm, distance: Float) {
-    try {
-        // Launch full-screen alarm overlay
-        val intent = android.content.Intent(context, AlarmOverlayActivity::class.java).apply {
-            putExtra("ALARM_ID", alarm.id)
-            putExtra("ALARM_NAME", alarm.name)
-            putExtra("SOUND_URI", alarm.soundUri)
-            putExtra("IS_GRADUAL_VOLUME", alarm.isGradualVolume)
-            putExtra("LATITUDE", alarm.latitude)
-            putExtra("LONGITUDE", alarm.longitude)
-            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        }
-        context.startActivity(intent)
-    } catch (e: Exception) {
-        e.printStackTrace()
     }
 }
 
@@ -600,9 +513,17 @@ fun SettingsScreen(
     isRainbowEnabled: Boolean,
     onRainbowToggle: (Boolean) -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val appPreferences = remember { AppPreferences(context) }
+    
+    val isCooldownEnabled by appPreferences.isCooldownEnabled.collectAsState(initial = false)
+    val cooldownMinutes by appPreferences.cooldownMinutes.collectAsState(initial = 5)
 
     var showColorOptions by remember { mutableStateOf(false) }
     var selectedColorIndex by remember { mutableIntStateOf(3) } // Default to "Mono"
+    var showCooldownOptions by remember { mutableStateOf(false) }
+    
     val colorOptions = mapOf(
         "Red" to Color.Red,
         "Green" to Color.Green,
@@ -616,6 +537,165 @@ fun SettingsScreen(
     ) {
         Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(16.dp))
+        
+        // Alarm Settings Section
+        Text(
+            "Alarm Settings",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(vertical = 8.dp)
+        )
+        
+        // Cooldown Settings
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+                .clickable { showCooldownOptions = !showCooldownOptions }
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Re-trigger Cooldown", fontWeight = FontWeight.Medium)
+                    Text(
+                        if (!isCooldownEnabled) "Disabled - Alarms reset when leaving radius"
+                        else "Enabled - ${cooldownMinutes} minute cooldown",
+                        fontSize = 12.sp,
+                        color = if (isCooldownEnabled) MaterialTheme.colorScheme.primary else Color.Gray
+                    )
+                }
+                Icon(
+                    if (showCooldownOptions) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = "Toggle Cooldown Options",
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            
+            if (showCooldownOptions) {
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                // Disable completely option
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            scope.launch {
+                                appPreferences.setCooldownEnabled(false)
+                            }
+                        }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = !isCooldownEnabled,
+                        onClick = {
+                            scope.launch {
+                                appPreferences.setCooldownEnabled(false)
+                            }
+                        }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text("Disable cooldown completely", fontWeight = FontWeight.Medium)
+                        Text(
+                            "Alarms reset when you leave the radius",
+                            fontSize = 11.sp,
+                            color = Color.Gray
+                        )
+                    }
+                }
+                
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                
+                // Enable with duration options
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            scope.launch {
+                                appPreferences.setCooldownEnabled(true)
+                            }
+                        }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    RadioButton(
+                        selected = isCooldownEnabled,
+                        onClick = {
+                            scope.launch {
+                                appPreferences.setCooldownEnabled(true)
+                            }
+                        }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Enable time-based cooldown", fontWeight = FontWeight.Medium)
+                        Text(
+                            "Alarms won't re-trigger for a set duration",
+                            fontSize = 11.sp,
+                            color = Color.Gray
+                        )
+                        
+                        if (isCooldownEnabled) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Duration:", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            
+                            // Duration chips
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                listOf(1, 3, 5).forEach { minutes ->
+                                    FilterChip(
+                                        selected = cooldownMinutes == minutes,
+                                        onClick = {
+                                            scope.launch {
+                                                appPreferences.setCooldownMinutes(minutes)
+                                            }
+                                        },
+                                        label = { Text("${minutes}m", fontSize = 12.sp) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                listOf(10, 15, 30).forEach { minutes ->
+                                    FilterChip(
+                                        selected = cooldownMinutes == minutes,
+                                        onClick = {
+                                            scope.launch {
+                                                appPreferences.setCooldownMinutes(minutes)
+                                            }
+                                        },
+                                        label = { Text("${minutes}m", fontSize = 12.sp) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+        
+        // Appearance Settings Section
+        Text(
+            "Appearance",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(vertical = 8.dp)
+        )
+        
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -624,8 +704,6 @@ fun SettingsScreen(
             Text("Rainbow Title")
             Switch(checked = isRainbowEnabled, onCheckedChange = onRainbowToggle)
         }
-
-        HorizontalDivider()
 
         Column(modifier = Modifier.clickable(enabled = !isRainbowEnabled) {
             showColorOptions = !showColorOptions

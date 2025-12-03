@@ -6,19 +6,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
-import android.media.AudioAttributes
-import android.media.MediaPlayer
-import android.media.RingtoneManager
-import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
-import android.os.VibrationEffect
-import android.os.Vibrator
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.*
-import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 
@@ -28,8 +21,9 @@ class LocationTrackingService : Service() {
     private lateinit var locationCallback: LocationCallback
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
-    private var mediaPlayer: MediaPlayer? = null
     private var currentAlertedAlarms = mutableSetOf<Int>()
+    private val alarmCooldownTimestamps = mutableMapOf<Int, Long>()
+    private lateinit var appPreferences: AppPreferences
     
     companion object {
         private const val NOTIFICATION_CHANNEL_ID = "location_tracking_channel"
@@ -54,6 +48,7 @@ class LocationTrackingService : Service() {
     
     override fun onCreate() {
         super.onCreate()
+        appPreferences = AppPreferences(applicationContext)
         createNotificationChannel()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         setupLocationCallback()
@@ -71,7 +66,6 @@ class LocationTrackingService : Service() {
         super.onDestroy()
         stopLocationUpdates()
         serviceScope.cancel()
-        stopAlarm()
     }
     
     private fun createNotificationChannel() {
@@ -152,7 +146,13 @@ class LocationTrackingService : Service() {
                 val database = LokAlertDatabase.getDatabase(applicationContext)
                 val alarms = database.alarmDao().getAllAlarms().first()
                 
+                // Get cooldown settings
+                val isCooldownEnabled = appPreferences.isCooldownEnabled.first()
+                val cooldownMinutes = appPreferences.cooldownMinutes.first()
+                val cooldownPeriod = cooldownMinutes * 60 * 1000L // Convert to milliseconds
+                
                 val currentDay = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK)
+                val currentTime = System.currentTimeMillis()
                 
                 var nearestAlarmDistance: Float? = null
                 var triggeredAlarm: LocationAlarm? = null
@@ -170,22 +170,40 @@ class LocationTrackingService : Service() {
                     
                     // Check if within radius
                     if (distance <= alarm.radius) {
-                        if (!currentAlertedAlarms.contains(alarm.id)) {
+                        // Check if cooldown is enabled and if alarm is in cooldown
+                        val canTrigger = if (isCooldownEnabled) {
+                            val lastTriggered = alarmCooldownTimestamps[alarm.id] ?: 0L
+                            (currentTime - lastTriggered) > cooldownPeriod
+                        } else {
+                            // If cooldown disabled, use the old logic (only trigger once per entry)
+                            !currentAlertedAlarms.contains(alarm.id)
+                        }
+                        
+                        if (canTrigger) {
                             // New alarm triggered
-                            if (nearestAlarmDistance == null || distance < nearestAlarmDistance!!) {
+                            if (nearestAlarmDistance == null || distance < nearestAlarmDistance) {
                                 nearestAlarmDistance = distance
                                 triggeredAlarm = alarm
                             }
                         }
                     } else {
-                        // User left the radius, allow re-triggering
-                        currentAlertedAlarms.remove(alarm.id)
+                        // User left the radius
+                        if (!isCooldownEnabled) {
+                            // Only remove from alerted set if cooldown is disabled
+                            currentAlertedAlarms.remove(alarm.id)
+                        }
+                        // Don't clear cooldown timestamp - let it expire naturally
                     }
                 }
                 
                 // Trigger the nearest alarm
                 triggeredAlarm?.let { alarm ->
-                    currentAlertedAlarms.add(alarm.id)
+                    if (isCooldownEnabled) {
+                        alarmCooldownTimestamps[alarm.id] = currentTime
+                    } else {
+                        currentAlertedAlarms.add(alarm.id)
+                    }
+                    
                     withContext(Dispatchers.Main) {
                         triggerAlarm(alarm, nearestAlarmDistance ?: 0f)
                     }
@@ -201,109 +219,19 @@ class LocationTrackingService : Service() {
         }
     }
     
-    private fun triggerAlarm(alarm: LocationAlarm, distance: Float) {
-        // Show high-priority notification
-        showAlarmNotification(alarm, distance)
-        
-        // Play sound
-        playAlarmSound(alarm)
-        
-        // Vibrate
-        vibrateDevice()
-    }
-    
-    private fun showAlarmNotification(alarm: LocationAlarm, distance: Float) {
-        val intent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            this, alarm.id, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        
-        val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("🚨 Location Alarm: ${alarm.name}")
-            .setContentText("You're ${String.format("%.0f", distance)}m away from your destination!")
-            .setSmallIcon(android.R.drawable.ic_dialog_alert) // Use system icon
-            .setContentIntent(pendingIntent)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setAutoCancel(true)
-            .setVibrate(longArrayOf(0, 500, 200, 500))
-            .build()
-        
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(alarm.id + 10000, notification) // Different ID from service notification
-    }
-    
-    private fun playAlarmSound(alarm: LocationAlarm) {
-        try {
-            stopAlarm() // Stop any currently playing alarm
-            
-            val soundUri = if (alarm.soundUri.isNotEmpty()) {
-                Uri.parse(alarm.soundUri)
-            } else {
-                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            }
-            
-            mediaPlayer = MediaPlayer().apply {
-                setDataSource(applicationContext, soundUri)
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .build()
-                )
-                
-                if (alarm.isGradualVolume) {
-                    setVolume(0.1f, 0.1f)
-                    // Gradually increase volume
-                    serviceScope.launch {
-                        for (i in 1..10) {
-                            delay(500)
-                            val volume = i / 10f
-                            mediaPlayer?.setVolume(volume, volume)
-                        }
-                    }
-                }
-                
-                isLooping = true
-                prepare()
-                start()
-            }
-            
-            // Auto-stop after 30 seconds
-            serviceScope.launch {
-                delay(30000)
-                stopAlarm()
-            }
-            
-        } catch (e: Exception) {
-            e.printStackTrace()
+    private fun triggerAlarm(alarm: LocationAlarm, @Suppress("UNUSED_PARAMETER") distance: Float) {
+        // Launch full-screen alarm overlay
+        val intent = Intent(this, AlarmOverlayActivity::class.java).apply {
+            putExtra("ALARM_ID", alarm.id)
+            putExtra("ALARM_NAME", alarm.name)
+            putExtra("SOUND_URI", alarm.soundUri)
+            putExtra("IS_GRADUAL_VOLUME", alarm.isGradualVolume)
+            putExtra("LATITUDE", alarm.latitude)
+            putExtra("LONGITUDE", alarm.longitude)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
-    }
-    
-    private fun stopAlarm() {
-        mediaPlayer?.let {
-            if (it.isPlaying) {
-                it.stop()
-            }
-            it.release()
-            mediaPlayer = null
-        }
-    }
-    
-    private fun vibrateDevice() {
-        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(
-                VibrationEffect.createWaveform(
-                    longArrayOf(0, 500, 200, 500, 200, 500),
-                    -1
-                )
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(longArrayOf(0, 500, 200, 500, 200, 500), -1)
-        }
+        startActivity(intent)
     }
     
     private fun updateNotification(contentText: String) {
