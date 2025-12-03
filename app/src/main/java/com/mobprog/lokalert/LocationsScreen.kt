@@ -185,7 +185,8 @@ fun LocationsScreen(
                         alarm = alarm,
                         onToggleFavorite = { viewModel.toggleFavorite(alarm) },
                         onDelete = { viewModel.deleteLocation(alarm) },
-                        onEdit = { locationToEdit = alarm }
+                        onEdit = { locationToEdit = alarm },
+                        onToggleEnabled = { viewModel.toggleAlarmEnabled(alarm) }
                     )
                 }
             }
@@ -245,7 +246,8 @@ fun SavedLocationCard(
     alarm: LocationAlarm,
     onToggleFavorite: () -> Unit,
     onDelete: () -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onToggleEnabled: () -> Unit
 ) {
     val isFav = alarm.isFavorite
     val cardColor = MaterialTheme.colorScheme.surface
@@ -263,86 +265,112 @@ fun SavedLocationCard(
                 shape = RoundedCornerShape(16.dp)
             )
     ) {
-        Row(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Left: Icon Bubble
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isFav) Color(0xFFFFD700).copy(alpha = 0.2f)
-                        else MaterialTheme.colorScheme.primaryContainer
-                    ),
-                contentAlignment = Alignment.Center
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.Place,
-                    contentDescription = null,
-                    tint = if (isFav) Color(0xFFD4AF37) else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            // Middle: Info
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = alarm.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // Left: Icon Bubble
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isFav) Color(0xFFFFD700).copy(alpha = 0.2f)
+                            else MaterialTheme.colorScheme.primaryContainer
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
-                        imageVector = Icons.Default.Map, // Or a radius icon
+                        imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.Place,
                         contentDescription = null,
-                        modifier = Modifier.size(12.dp),
-                        tint = Color.Gray
+                        tint = if (isFav) Color(0xFFD4AF37) else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                // Middle: Info
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Radius: ${alarm.radius.toInt()}m",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = alarm.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Map,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Radius: ${alarm.radius.toInt()}m",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Right: Actions
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onToggleFavorite) {
+                        Icon(
+                            imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = "Favorite",
+                            tint = if (isFav) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    IconButton(onClick = onEdit) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
-
-            // Right: Actions
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onToggleFavorite) {
-                    Icon(
-                        imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = "Favorite",
-                        tint = if (isFav) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                IconButton(onClick = onEdit) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Edit",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+            
+            // Alarm On/Off Switch Row
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 12.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (alarm.isEnabled) "Alarm Active" else "Alarm Inactive",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (alarm.isEnabled) 
+                        MaterialTheme.colorScheme.primary 
+                    else 
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+                Switch(
+                    checked = alarm.isEnabled,
+                    onCheckedChange = { onToggleEnabled() },
+                    modifier = Modifier.scale(0.9f)
+                )
             }
         }
     }

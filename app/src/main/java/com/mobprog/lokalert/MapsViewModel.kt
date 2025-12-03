@@ -55,6 +55,14 @@ class MapsViewModel(application: Application) : AndroidViewModel(application) {
             dao.updateAlarm(updatedAlarm)
         }
     }
+    
+    // Toggle alarm enabled/disabled
+    fun toggleAlarmEnabled(alarm: LocationAlarm) {
+        viewModelScope.launch {
+            val updatedAlarm = alarm.copy(isEnabled = !alarm.isEnabled)
+            dao.updateAlarm(updatedAlarm)
+        }
+    }
 
     // 4. Logic to Update Name (Edit)
     fun updateLocationName(alarm: LocationAlarm, newName: String) {

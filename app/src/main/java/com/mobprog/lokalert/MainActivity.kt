@@ -214,6 +214,10 @@ private suspend fun startLocationTracking(context: Context) {
     val fusedLocationClient = com.google.android.gms.location.LocationServices
         .getFusedLocationProviderClient(context)
     
+    // Track which alarms have been triggered recently (cooldown)
+    val triggeredAlarms = mutableMapOf<Int, Long>()
+    val cooldownPeriod = 5 * 60 * 1000L // 5 minutes cooldown
+    
     // Check location every 10 seconds
     while (true) {
         try {
@@ -229,27 +233,33 @@ private suspend fun startLocationTracking(context: Context) {
                             val alarms = database.alarmDao().getAllAlarms().first()
                             val currentDay = java.util.Calendar.getInstance()
                                 .get(java.util.Calendar.DAY_OF_WEEK)
+                            val currentTime = System.currentTimeMillis()
                             
                             alarms.filter { it.isEnabled }.forEach { alarm ->
                                 // Check if alarm is active for today
                                 if (alarm.activeDays.isEmpty() || alarm.activeDays.contains(currentDay)) {
-                                    val alarmLocation = android.location.Location("").apply {
-                                        latitude = alarm.latitude
-                                        longitude = alarm.longitude
-                                    }
-                                    val userLocation = android.location.Location("").apply {
-                                        latitude = currentLoc.latitude
-                                        longitude = currentLoc.longitude
-                                    }
-                                    
-                                    val distance = userLocation.distanceTo(alarmLocation)
-                                    
-                                    // If within radius, trigger alarm
-                                    if (distance <= alarm.radius) {
-                                        kotlinx.coroutines.CoroutineScope(
-                                            kotlinx.coroutines.Dispatchers.Main
-                                        ).launch {
-                                            triggerLocationAlarm(context, alarm, distance)
+                                    // Check cooldown
+                                    val lastTriggered = triggeredAlarms[alarm.id] ?: 0L
+                                    if (currentTime - lastTriggered > cooldownPeriod) {
+                                        val alarmLocation = android.location.Location("").apply {
+                                            latitude = alarm.latitude
+                                            longitude = alarm.longitude
+                                        }
+                                        val userLocation = android.location.Location("").apply {
+                                            latitude = currentLoc.latitude
+                                            longitude = currentLoc.longitude
+                                        }
+                                        
+                                        val distance = userLocation.distanceTo(alarmLocation)
+                                        
+                                        // If within radius, trigger alarm
+                                        if (distance <= alarm.radius) {
+                                            triggeredAlarms[alarm.id] = currentTime
+                                            kotlinx.coroutines.CoroutineScope(
+                                                kotlinx.coroutines.Dispatchers.Main
+                                            ).launch {
+                                                triggerLocationAlarm(context, alarm, distance)
+                                            }
                                         }
                                     }
                                 }
@@ -269,50 +279,18 @@ private suspend fun startLocationTracking(context: Context) {
 
 private fun triggerLocationAlarm(context: Context, alarm: LocationAlarm, distance: Float) {
     try {
-        // Create notification
-        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as 
-            android.app.NotificationManager
-        
-        // Create notification channel (Android 8+)
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            val channel = android.app.NotificationChannel(
-                "location_alarm_channel",
-                "Location Alarms",
-                android.app.NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Alerts when you reach a location"
-                enableVibration(true)
-                vibrationPattern = longArrayOf(0, 500, 200, 500)
-            }
-            notificationManager.createNotificationChannel(channel)
+        // Launch full-screen alarm overlay
+        val intent = android.content.Intent(context, AlarmOverlayActivity::class.java).apply {
+            putExtra("ALARM_ID", alarm.id)
+            putExtra("ALARM_NAME", alarm.name)
+            putExtra("SOUND_URI", alarm.soundUri)
+            putExtra("IS_GRADUAL_VOLUME", alarm.isGradualVolume)
+            putExtra("LATITUDE", alarm.latitude)
+            putExtra("LONGITUDE", alarm.longitude)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
-        
-        // Build notification
-        val notification = androidx.core.app.NotificationCompat.Builder(context, "location_alarm_channel")
-            .setContentTitle("📍 ${alarm.name}")
-            .setContentText("You're ${distance.toInt()}m away!")
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .build()
-        
-        notificationManager.notify(alarm.id, notification)
-        
-        // Play sound
-        val soundUri = if (alarm.soundUri.isNotEmpty()) {
-            android.net.Uri.parse(alarm.soundUri)
-        } else {
-            android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM)
-        }
-        
-        val ringtone = android.media.RingtoneManager.getRingtone(context, soundUri)
-        ringtone?.play()
-        
-        // Stop after 5 seconds
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-            kotlinx.coroutines.delay(5000)
-            ringtone?.stop()
-        }
+        context.startActivity(intent)
     } catch (e: Exception) {
         e.printStackTrace()
     }
