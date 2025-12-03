@@ -1,11 +1,16 @@
 package com.mobprog.lokalert
 
 import android.app.KeyguardManager
-import android.media.Ringtone
-import android.media.RingtoneManager
+import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -34,12 +39,20 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationServices
 import com.mobprog.lokalert.ui.theme.LokAlertTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 class AlarmOverlayActivity : ComponentActivity() {
     
-    private var ringtone: Ringtone? = null
+    private var mediaPlayer: MediaPlayer? = null
+    private var vibrator: Vibrator? = null
+    private var audioManager: AudioManager? = null
+    private var originalVolume: Int = 0
+    private var originalRingerMode: Int = AudioManager.RINGER_MODE_NORMAL
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,14 +78,36 @@ class AlarmOverlayActivity : ComponentActivity() {
             keyguardManager.requestDismissKeyguard(this, null)
         }
         
+        // Initialize audio manager and override system settings
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        setupAudioOverride()
+        
+        // Initialize vibrator
+        vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            vibratorManager.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+        
         // Get alarm data from intent
         val alarmName = intent.getStringExtra("ALARM_NAME") ?: "Location Alarm"
         val soundUri = intent.getStringExtra("SOUND_URI") ?: ""
         val latitude = intent.getDoubleExtra("LATITUDE", 0.0)
         val longitude = intent.getDoubleExtra("LONGITUDE", 0.0)
         
-        // Start playing alarm sound
-        playAlarmSound(soundUri)
+        // Get vibration intensity from settings
+        CoroutineScope(Dispatchers.Main).launch {
+            val appPreferences = AppPreferences(applicationContext)
+            val vibrationIntensity = appPreferences.vibrationIntensity.first()
+            
+            // Start vibration
+            startVibration(vibrationIntensity)
+            
+            // Start playing alarm sound at max volume
+            playAlarmSound(soundUri)
+        }
         
         setContent {
             LokAlertTheme {
@@ -81,7 +116,7 @@ class AlarmOverlayActivity : ComponentActivity() {
                     latitude = latitude,
                     longitude = longitude,
                     onDismiss = {
-                        stopAlarmSound()
+                        stopAlarm()
                         finish()
                     }
                 )
@@ -89,28 +124,127 @@ class AlarmOverlayActivity : ComponentActivity() {
         }
     }
     
+    private fun setupAudioOverride() {
+        audioManager?.let { am ->
+            // Save original settings
+            originalVolume = am.getStreamVolume(AudioManager.STREAM_ALARM)
+            originalRingerMode = am.ringerMode
+            
+            // Override Do Not Disturb and set to max volume
+            try {
+                // Set ringer mode to normal (bypass silent/vibrate)
+                am.ringerMode = AudioManager.RINGER_MODE_NORMAL
+                
+                // Set alarm volume to maximum
+                val maxVolume = am.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+                am.setStreamVolume(AudioManager.STREAM_ALARM, maxVolume, 0)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+    
+    private fun restoreAudioSettings() {
+        audioManager?.let { am ->
+            try {
+                // Restore original settings
+                am.ringerMode = originalRingerMode
+                am.setStreamVolume(AudioManager.STREAM_ALARM, originalVolume, 0)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+    
+    private fun startVibration(intensity: Int) {
+        vibrator?.let { vib ->
+            // Define vibration patterns based on intensity
+            // Pattern: [delay, vibrate, delay, vibrate, ...]
+            val pattern = when (intensity) {
+                0 -> longArrayOf(0, 200, 500, 200, 500) // Low: short pulses with long pauses
+                1 -> longArrayOf(0, 400, 300, 400, 300) // Medium: medium pulses
+                2 -> longArrayOf(0, 800, 200, 800, 200) // Strong: long intense pulses
+                else -> longArrayOf(0, 800, 200, 800, 200)
+            }
+            
+            // Amplitude for Android 8.0+
+            val amplitude = when (intensity) {
+                0 -> 64   // Low: ~25% intensity
+                1 -> 128  // Medium: ~50% intensity
+                2 -> 255  // Strong: 100% max intensity
+                else -> 255
+            }
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // Use VibrationEffect for better control
+                val effect = VibrationEffect.createWaveform(
+                    pattern,
+                    intArrayOf(0, amplitude, 0, amplitude, 0),
+                    0 // Repeat from index 0 (continuous)
+                )
+                vib.vibrate(effect)
+            } else {
+                @Suppress("DEPRECATION")
+                vib.vibrate(pattern, 0) // 0 = repeat from beginning
+            }
+        }
+    }
+    
+    private fun stopVibration() {
+        vibrator?.cancel()
+    }
+    
     private fun playAlarmSound(soundUriString: String) {
         try {
             val uri = if (soundUriString.isNotEmpty()) {
                 Uri.parse(soundUriString)
             } else {
-                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM)
             }
             
-            ringtone = RingtoneManager.getRingtone(this, uri)
-            ringtone?.play()
+            mediaPlayer = MediaPlayer().apply {
+                setDataSource(applicationContext, uri)
+                
+                // Use ALARM stream to bypass DND
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED)
+                        .build()
+                )
+                
+                isLooping = true
+                setVolume(1.0f, 1.0f) // Max volume
+                prepare()
+                start()
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
     
-    private fun stopAlarmSound() {
-        ringtone?.stop()
+    private fun stopAlarm() {
+        stopVibration()
+        
+        mediaPlayer?.let {
+            try {
+                if (it.isPlaying) {
+                    it.stop()
+                }
+                it.release()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            mediaPlayer = null
+        }
+        
+        restoreAudioSettings()
     }
     
     override fun onDestroy() {
         super.onDestroy()
-        stopAlarmSound()
+        stopAlarm()
     }
 }
 

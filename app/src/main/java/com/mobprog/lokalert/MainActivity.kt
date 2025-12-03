@@ -688,6 +688,48 @@ fun SettingsScreen(
         
         HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
         
+        // Vibration Settings
+        val vibrationIntensity by appPreferences.vibrationIntensity.collectAsState(initial = 2)
+        
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            Text("Vibration Intensity", fontWeight = FontWeight.Medium)
+            Text(
+                "Controls vibration strength when alarm triggers",
+                fontSize = 12.sp,
+                color = Color.Gray
+            )
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    0 to "Low",
+                    1 to "Medium",
+                    2 to "Strong"
+                ).forEach { (intensity, label) ->
+                    FilterChip(
+                        selected = vibrationIntensity == intensity,
+                        onClick = {
+                            scope.launch {
+                                appPreferences.setVibrationIntensity(intensity)
+                            }
+                        },
+                        label = { Text(label) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+        
+        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+        
         // Appearance Settings Section
         Text(
             "Appearance",
