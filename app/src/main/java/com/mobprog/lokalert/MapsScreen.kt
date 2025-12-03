@@ -43,6 +43,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -104,11 +105,25 @@ fun MapsScreen(
 
     // --- Map Style ---
     val isDarkTheme = isSystemInDarkTheme()
-    val mapProperties = remember(isDarkTheme, hasLocationPermission) {
+    val mapProperties = remember(hasLocationPermission) {
         MapProperties(
-            isMyLocationEnabled = hasLocationPermission,
-            mapStyleOptions = if (isDarkTheme) MapStyleOptions.loadRawResourceStyle(context, R.raw.map_style_dark) else null
+            isMyLocationEnabled = hasLocationPermission
+            // Temporarily disabled custom map style
+            // mapStyleOptions = if (isDarkTheme) MapStyleOptions.loadRawResourceStyle(context, R.raw.map_style_dark) else null
         )
+    }
+    
+    // Map loading state
+    var isMapLoaded by remember { mutableStateOf(false) }
+    var mapLoadError by remember { mutableStateOf<String?>(null) }
+    
+    // Timeout for map loading (if not loaded after 10 seconds, show error)
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(10000)
+        if (!isMapLoaded) {
+            mapLoadError = "Map failed to load. Check API key and internet connection."
+            isMapLoaded = true // Stop showing loading indicator
+        }
     }
 
     // --- File Pickers ---
@@ -200,19 +215,26 @@ fun MapsScreen(
                         val words = query.split(" ", ",", "-")
                         viewModel.alarmName = words.take(2).joinToString(" ").trim()
                         
-                        // Update persistent info bar immediately
-                        persistentPinnedLocationName = query
-                        manualNameUpdate = true // Prevent LaunchedEffect from overwriting
+                        // Geocode to get proper address
+                        val addressResults = withContext(Dispatchers.IO) {
+                            @Suppress("DEPRECATION")
+                            geocoder.getFromLocation(target.latitude, target.longitude, 1)
+                        }
+                        persistentPinnedLocationName = addressResults?.firstOrNull()?.let { addr ->
+                            addr.featureName ?: addr.locality ?: addr.subAdminArea ?: query
+                        } ?: query
+                        manualNameUpdate = true
                         
-                        // Animate camera to the searched location
                         cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(target, 15f))
+                        
+                        Toast.makeText(context, "Location found: ${persistentPinnedLocationName}", Toast.LENGTH_SHORT).show()
                     }
                 } else {
-                    Toast.makeText(context, "Location not found", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Location not found. Try a different search term.", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                Toast.makeText(context, "Error searching location", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Search error: ${e.message ?: "Unknown error"}", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -261,11 +283,23 @@ fun MapsScreen(
         }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            // Debug: Log that we're trying to render the map
+            LaunchedEffect(Unit) {
+                android.util.Log.d("MapsScreen", "Attempting to render GoogleMap")
+                android.util.Log.d("MapsScreen", "Has location permission: $hasLocationPermission")
+                android.util.Log.d("MapsScreen", "Camera position: ${cameraPositionState.position}")
+            }
+            
+            // GoogleMap component
             GoogleMap(
                 modifier = Modifier.fillMaxSize(),
                 cameraPositionState = cameraPositionState,
                 properties = mapProperties,
                 uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = false),
+                onMapLoaded = {
+                    android.util.Log.d("MapsScreen", "Map loaded successfully!")
+                    isMapLoaded = true
+                },
                 onMapLongClick = { latLng ->
                     viewModel.markerPosition = latLng
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -355,6 +389,66 @@ fun MapsScreen(
                         fillColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
                         strokeWidth = 2f
                     )
+                }
+            }
+            
+            // Map loading indicator or error message
+            if (!isMapLoaded || mapLoadError != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .alpha(0.9f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            if (mapLoadError != null) {
+                                Icon(
+                                    Icons.Default.Place,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(48.dp),
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                                Text(
+                                    "Map Loading Failed",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                Text(
+                                    mapLoadError!!,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    textAlign = TextAlign.Center
+                                )
+                                Button(
+                                    onClick = {
+                                        // Reset and retry
+                                        isMapLoaded = false
+                                        mapLoadError = null
+                                    }
+                                ) {
+                                    Text("Retry")
+                                }
+                            } else {
+                                CircularProgressIndicator()
+                                Text("Loading map...", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "This may take a few seconds",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
                 }
             }
 

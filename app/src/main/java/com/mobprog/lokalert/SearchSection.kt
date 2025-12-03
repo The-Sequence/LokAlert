@@ -37,10 +37,31 @@ fun SearchSection(
     val context = LocalContext.current
     var userHasSelectedSuggestion by remember { mutableStateOf(false) }
     val keyboardController = LocalSoftwareKeyboardController.current
+    var showError by remember { mutableStateOf(false) }
 
-    // Places Client Setup
+    // Places Client Setup with error handling
     val placesClient = remember {
-        if (Places.isInitialized()) Places.createClient(context) else null
+        try {
+            if (!Places.isInitialized()) {
+                // Try to initialize if not already done
+                val packageInfo = context.packageManager.getApplicationInfo(
+                    context.packageName,
+                    android.content.pm.PackageManager.GET_META_DATA
+                )
+                val apiKey = packageInfo.metaData?.getString("com.google.android.geo.API_KEY")
+                if (apiKey != null) {
+                    Places.initialize(context, apiKey)
+                }
+            }
+            if (Places.isInitialized()) {
+                Places.createClient(context)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
     val token = remember { AutocompleteSessionToken.newInstance() }
 
@@ -51,21 +72,29 @@ fun SearchSection(
             return@LaunchedEffect
         }
         if (searchText.isNotEmpty() && placesClient != null) {
-            val request = FindAutocompletePredictionsRequest.builder()
-                .setCountries("PH") // Change country code if needed
-                .setSessionToken(token)
-                .setQuery(searchText)
-                .build()
+            try {
+                val request = FindAutocompletePredictionsRequest.builder()
+                    // Removed country restriction to allow global search
+                    .setSessionToken(token)
+                    .setQuery(searchText)
+                    .build()
 
-            placesClient.findAutocompletePredictions(request)
-                .addOnSuccessListener { response ->
-                    suggestions = response.autocompletePredictions.map { it.getFullText(null).toString() }
-                    expanded = suggestions.isNotEmpty()
-                }
-                .addOnFailureListener {
-                    suggestions = emptyList()
-                    expanded = false
-                }
+                placesClient.findAutocompletePredictions(request)
+                    .addOnSuccessListener { response ->
+                        suggestions = response.autocompletePredictions.map { it.getFullText(null).toString() }
+                        expanded = suggestions.isNotEmpty()
+                    }
+                    .addOnFailureListener { exception ->
+                        // Log error for debugging
+                        exception.printStackTrace()
+                        suggestions = emptyList()
+                        expanded = false
+                    }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                suggestions = emptyList()
+                expanded = false
+            }
         } else {
             suggestions = emptyList()
             expanded = false
@@ -90,7 +119,12 @@ fun SearchSection(
                     value = searchText,
                     onValueChange = { searchText = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Search locations...", fontSize = 14.sp) },
+                    placeholder = { 
+                        Text(
+                            if (placesClient != null) "Search locations..." else "Search (Places API unavailable)",
+                            fontSize = 14.sp
+                        ) 
+                    },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search Icon") },
                     trailingIcon = {
                         if (searchText.isNotEmpty()) {
@@ -115,11 +149,14 @@ fun SearchSection(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(
                         onSearch = {
-                            onSearch?.invoke(searchText)
-                            expanded = false
-                            keyboardController?.hide()
+                            if (searchText.isNotEmpty()) {
+                                onSearch?.invoke(searchText)
+                                expanded = false
+                                keyboardController?.hide()
+                            }
                         }
-                    )
+                    ),
+                    enabled = true // Always enabled, even if Places API is unavailable
                 )
 
                 AnimatedVisibility(visible = expanded) {

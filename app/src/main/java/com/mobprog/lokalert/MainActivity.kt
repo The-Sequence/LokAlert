@@ -1,6 +1,7 @@
 package com.mobprog.lokalert
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -92,6 +93,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.libraries.places.api.Places
 import com.mobprog.lokalert.ui.theme.LokAlertTheme
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 
@@ -195,8 +197,124 @@ fun LokAlertAppEntryPoint() {
         }
         else -> {
             // Onboarding completed AND permissions granted
+            val context = LocalContext.current
+            
+            // Start in-app location tracking for proximity alarms
+            LaunchedEffect(Unit) {
+                startLocationTracking(context)
+            }
+            
             LokAlertApp()
         }
+    }
+}
+
+private suspend fun startLocationTracking(context: Context) {
+    val database = LokAlertDatabase.getDatabase(context)
+    val fusedLocationClient = com.google.android.gms.location.LocationServices
+        .getFusedLocationProviderClient(context)
+    
+    // Check location every 10 seconds
+    while (true) {
+        try {
+            if (ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                    location?.let { currentLoc ->
+                        // Check proximity to all enabled alarms
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            val alarms = database.alarmDao().getAllAlarms().first()
+                            val currentDay = java.util.Calendar.getInstance()
+                                .get(java.util.Calendar.DAY_OF_WEEK)
+                            
+                            alarms.filter { it.isEnabled }.forEach { alarm ->
+                                // Check if alarm is active for today
+                                if (alarm.activeDays.isEmpty() || alarm.activeDays.contains(currentDay)) {
+                                    val alarmLocation = android.location.Location("").apply {
+                                        latitude = alarm.latitude
+                                        longitude = alarm.longitude
+                                    }
+                                    val userLocation = android.location.Location("").apply {
+                                        latitude = currentLoc.latitude
+                                        longitude = currentLoc.longitude
+                                    }
+                                    
+                                    val distance = userLocation.distanceTo(alarmLocation)
+                                    
+                                    // If within radius, trigger alarm
+                                    if (distance <= alarm.radius) {
+                                        kotlinx.coroutines.CoroutineScope(
+                                            kotlinx.coroutines.Dispatchers.Main
+                                        ).launch {
+                                            triggerLocationAlarm(context, alarm, distance)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        
+        // Wait 10 seconds before next check
+        kotlinx.coroutines.delay(10000)
+    }
+}
+
+private fun triggerLocationAlarm(context: Context, alarm: LocationAlarm, distance: Float) {
+    try {
+        // Create notification
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as 
+            android.app.NotificationManager
+        
+        // Create notification channel (Android 8+)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channel = android.app.NotificationChannel(
+                "location_alarm_channel",
+                "Location Alarms",
+                android.app.NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Alerts when you reach a location"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 200, 500)
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+        
+        // Build notification
+        val notification = androidx.core.app.NotificationCompat.Builder(context, "location_alarm_channel")
+            .setContentTitle("📍 ${alarm.name}")
+            .setContentText("You're ${distance.toInt()}m away!")
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+        
+        notificationManager.notify(alarm.id, notification)
+        
+        // Play sound
+        val soundUri = if (alarm.soundUri.isNotEmpty()) {
+            android.net.Uri.parse(alarm.soundUri)
+        } else {
+            android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM)
+        }
+        
+        val ringtone = android.media.RingtoneManager.getRingtone(context, soundUri)
+        ringtone?.play()
+        
+        // Stop after 5 seconds
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+            kotlinx.coroutines.delay(5000)
+            ringtone?.stop()
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
     }
 }
 
