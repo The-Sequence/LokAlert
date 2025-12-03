@@ -1,6 +1,5 @@
 package com.mobprog.lokalert
 
-import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -26,7 +25,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Settings
@@ -58,15 +56,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.google.android.libraries.places.api.Places
 import com.mobprog.lokalert.ui.theme.LokAlertTheme
 import kotlinx.coroutines.launch
 
@@ -76,16 +70,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Initialize Places API
-        if (!Places.isInitialized()) {
-            val apiKey = packageManager.getApplicationInfo(
-                packageName,
-                PackageManager.GET_META_DATA
-            ).metaData?.getString("com.google.android.geo.API_KEY")
-            if (apiKey != null) {
-                Places.initialize(applicationContext, apiKey)
-            }
-        }
 
         setContent {
             LokAlertTheme {
@@ -133,7 +117,10 @@ fun LokAlertApp() {
     var isRainbowEffectEnabled by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    val mapsViewModel: MapsViewModel = viewModel()
+    val context = LocalContext.current
+    val mapsViewModel: MapsViewModel = remember {
+        MapsViewModel(context.applicationContext as android.app.Application)
+    }
 
     // State for Search History
     var recentSearches by remember { mutableStateOf(emptyList<String>()) }
@@ -187,12 +174,15 @@ fun LokAlertApp() {
 
     // --- Main Layout ---
     Scaffold(
-        topBar = { TopBar(
-            color = animatedTitleColor.value,
-            onSettingsClick = { currentScreen = "Settings" }) },
+        topBar = {
+            TopBar(
+                color = animatedTitleColor.value,
+                onSettingsClick = { currentScreen = "Settings" }
+            )
+        },
         bottomBar = {
             if (currentScreen != "Settings") {
-                BottomNavBar(currentScreen) { currentScreen = it }
+                BottomNavBar(currentScreen) { newScreen -> currentScreen = newScreen }
             }
         }
     ) { paddingValues ->
@@ -235,14 +225,6 @@ fun DefaultPreview() {
     }
 }
 
-// Helper to disable touch pass-through (if needed for overlays)
-fun Modifier.bypassing(): Modifier = this.pointerInput(Unit) {
-    awaitPointerEventScope {
-        while (true) {
-            awaitPointerEvent(pass = PointerEventPass.Initial)
-        }
-    }
-}
 
 @Composable
 fun TopBar(color: Color, onSettingsClick: () -> Unit) {
@@ -372,7 +354,7 @@ fun BottomNavBar(currentScreen: String, onScreenSelected: (String) -> Unit) {
         NavigationBarItem(
             selected = currentScreen == "Maps",
             onClick = { onScreenSelected("Maps") },
-            icon = { Icon(Icons.Default.Map, contentDescription = null) },
+            icon = { Icon(Icons.Default.Place, contentDescription = null) },
             label = { Text("Map") }
         )
         NavigationBarItem(

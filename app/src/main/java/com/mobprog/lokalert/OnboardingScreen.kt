@@ -4,9 +4,11 @@ import android.Manifest
 import android.app.AlarmManager
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
+import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -27,11 +29,11 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.LocationOn
-import androidx.compose.material.icons.rounded.NotificationsActive
-import androidx.compose.material.icons.rounded.RadioButtonUnchecked
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -52,16 +54,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat.startActivity
+import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.isGranted
-import com.google.accompanist.permissions.rememberMultiplePermissionsState
-import com.google.accompanist.permissions.rememberPermissionState
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.launch
 
 @Composable
@@ -69,6 +68,126 @@ fun OnboardingScreen(onFinished: () -> Unit) {
     val pageCount = 3
     val pagerState = rememberPagerState(pageCount = { pageCount })
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    // Track permissions for each page
+    var page1PermissionsGranted by remember { mutableStateOf(true) }
+    var page2PermissionsGranted by remember { mutableStateOf(false) }
+    var page3PermissionsGranted by remember { mutableStateOf(false) }
+
+    // Mutable state for permission status that updates immediately
+    var notificationGranted by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                true
+            }
+        )
+    }
+
+    var locationGranted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED &&
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    var hasAlarmPermission by remember { mutableStateOf(checkAlarmPermission(context)) }
+
+    // Notification permission launcher
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        // Update notification state immediately
+        notificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+    }
+
+    // Location permissions launcher
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        // Update location state immediately
+        locationGranted =
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED &&
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Listen to lifecycle changes to refresh permission status
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasAlarmPermission = checkAlarmPermission(context)
+                // Also refresh other permissions on resume
+                notificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) == PackageManager.PERMISSION_GRANTED
+                } else {
+                    true
+                }
+                locationGranted =
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.ACCESS_FINE_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED &&
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            ) == PackageManager.PERMISSION_GRANTED
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Update page permission status
+    DisposableEffect(notificationGranted, hasAlarmPermission) {
+        page2PermissionsGranted = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> notificationGranted && hasAlarmPermission
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> notificationGranted
+            else -> true
+        }
+        onDispose {}
+    }
+
+    DisposableEffect(locationGranted) {
+        page3PermissionsGranted = locationGranted
+        onDispose {}
+    }
+
+    // Determine if Next button should be enabled
+    val isNextButtonEnabled = when (pagerState.currentPage) {
+        0 -> page1PermissionsGranted
+        1 -> page2PermissionsGranted
+        2 -> page3PermissionsGranted
+        else -> false
+    }
 
     Scaffold(
         bottomBar = {
@@ -102,6 +221,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
 
                 // Next / Finish Button
                 Button(
+                    enabled = isNextButtonEnabled,
                     onClick = {
                         if (pagerState.currentPage < pageCount - 1) {
                             scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
@@ -126,11 +246,37 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                 0 -> OnboardingPage(
                     title = "Welcome to LokAlert",
                     description = "Your intelligent companion for location-based alerts and timing.",
-                    icon = Icons.Rounded.Explore,
+                    icon = Icons.Filled.Home,
                     content = {}
                 )
-                1 -> NotificationsAndAlarmsPage()
-                2 -> LocationPage()
+                1 -> NotificationsAndAlarmsPage(
+                    notificationGranted = notificationGranted,
+                    hasAlarmPermission = hasAlarmPermission,
+                    onRequestNotificationPermission = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    },
+                    onRequestAlarmPermission = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                data = "package:${context.packageName}".toUri()
+                            }
+                            context.startActivity(intent)
+                        }
+                    }
+                )
+                2 -> LocationPage(
+                    locationGranted = locationGranted,
+                    onRequestLocationPermission = {
+                        locationPermissionLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            )
+                        )
+                    }
+                )
             }
         }
     }
@@ -150,7 +296,6 @@ fun OnboardingPage(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Large M3 Icon Area
         Box(
             modifier = Modifier
                 .size(120.dp)
@@ -185,42 +330,27 @@ fun OnboardingPage(
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Specific permission buttons go here
         content()
     }
 }
 
-@OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun NotificationsAndAlarmsPage() {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-
-    val showNotif = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-    val notifState = if (showNotif) rememberPermissionState(Manifest.permission.POST_NOTIFICATIONS) else null
-
-    var hasAlarmPermission by remember { mutableStateOf(checkAlarmPermission(context)) }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                hasAlarmPermission = checkAlarmPermission(context)
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
+fun NotificationsAndAlarmsPage(
+    notificationGranted: Boolean,
+    hasAlarmPermission: Boolean,
+    onRequestNotificationPermission: () -> Unit,
+    onRequestAlarmPermission: () -> Unit
+) {
     OnboardingPage(
         title = "Stay on Track",
         description = "We need permissions to ring alarms and send you important notifications.",
-        icon = Icons.Rounded.NotificationsActive
+        icon = Icons.Rounded.Notifications
     ) {
-        if (showNotif && notifState != null) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             PermissionRequestCard(
                 title = "Notifications",
-                isGranted = notifState.status.isGranted,
-                onGrantClick = { notifState.launchPermissionRequest() }
+                isGranted = notificationGranted,
+                onGrantClick = onRequestNotificationPermission
             )
             Spacer(modifier = Modifier.height(16.dp))
         }
@@ -229,28 +359,17 @@ fun NotificationsAndAlarmsPage() {
             PermissionRequestCard(
                 title = "Exact Alarms",
                 isGranted = hasAlarmPermission,
-                onGrantClick = {
-                    val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                        data = Uri.parse("package:${context.packageName}")
-                    }
-                    startActivity(context, intent, null)
-                }
+                onGrantClick = onRequestAlarmPermission
             )
         }
     }
 }
 
-
-@OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun LocationPage() {
-    val locationState = rememberMultiplePermissionsState(
-        permissions = listOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        )
-    )
-
+fun LocationPage(
+    locationGranted: Boolean,
+    onRequestLocationPermission: () -> Unit
+) {
     OnboardingPage(
         title = "Enable Location",
         description = "To show local alerts and map features, we need access to your location.",
@@ -258,8 +377,8 @@ fun LocationPage() {
     ) {
         PermissionRequestCard(
             title = "Location Access",
-            isGranted = locationState.allPermissionsGranted,
-            onGrantClick = { locationState.launchMultiplePermissionRequest() }
+            isGranted = locationGranted,
+            onGrantClick = onRequestLocationPermission
         )
     }
 }
@@ -288,7 +407,7 @@ fun PermissionRequestCard(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = if (isGranted) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                    imageVector = if (isGranted) Icons.Rounded.CheckCircle else Icons.Filled.FavoriteBorder,
                     contentDescription = null,
                     tint = if (isGranted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -317,3 +436,4 @@ fun checkAlarmPermission(context: Context): Boolean {
         true
     }
 }
+
