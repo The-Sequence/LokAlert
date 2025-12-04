@@ -110,7 +110,10 @@ class AlarmOverlayActivity : ComponentActivity() {
         }
         
         setContent {
-            LokAlertTheme {
+            val appPreferences = remember { AppPreferences(applicationContext) }
+            val darkMode by appPreferences.darkMode.collectAsState(initial = 0)
+            
+            LokAlertTheme(darkMode = darkMode) {
                 AlarmOverlayScreen(
                     alarmName = alarmName,
                     latitude = latitude,

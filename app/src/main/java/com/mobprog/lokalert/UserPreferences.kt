@@ -15,6 +15,8 @@ class Onboarding(private val context: Context) {
 
     companion object {
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
+        val TOUR_PROMPT_SHOWN = booleanPreferencesKey("tour_prompt_shown")
+        val HELP_ICON_SPOTLIGHT_SHOWN = booleanPreferencesKey("help_icon_spotlight_shown")
     }
 
     val isOnboardingCompleted: Flow<Boolean> = context.dataStore.data
@@ -22,9 +24,31 @@ class Onboarding(private val context: Context) {
             preferences[ONBOARDING_COMPLETED] ?: false
         }
 
+    val isTourPromptShown: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[TOUR_PROMPT_SHOWN] ?: false
+        }
+
+    val isHelpIconSpotlightShown: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[HELP_ICON_SPOTLIGHT_SHOWN] ?: false
+        }
+
     suspend fun saveOnboardingCompleted() {
         context.dataStore.edit { preferences ->
             preferences[ONBOARDING_COMPLETED] = true
+        }
+    }
+
+    suspend fun saveTourPromptShown() {
+        context.dataStore.edit { preferences ->
+            preferences[TOUR_PROMPT_SHOWN] = true
+        }
+    }
+
+    suspend fun saveHelpIconSpotlightShown() {
+        context.dataStore.edit { preferences ->
+            preferences[HELP_ICON_SPOTLIGHT_SHOWN] = true
         }
     }
 }
@@ -35,6 +59,7 @@ class AppPreferences(private val context: Context) {
         val COOLDOWN_ENABLED = booleanPreferencesKey("cooldown_enabled")
         val COOLDOWN_MINUTES = intPreferencesKey("cooldown_minutes")
         val VIBRATION_INTENSITY = intPreferencesKey("vibration_intensity") // 0=Low, 1=Medium, 2=Strong
+        val DARK_MODE = intPreferencesKey("dark_mode") // 0=Light, 1=Dark Gray, 2=Pitch Black
     }
 
     val isCooldownEnabled: Flow<Boolean> = context.dataStore.data
@@ -50,6 +75,11 @@ class AppPreferences(private val context: Context) {
     val vibrationIntensity: Flow<Int> = context.dataStore.data
         .map { preferences ->
             preferences[VIBRATION_INTENSITY] ?: 2 // Default to Strong
+        }
+    
+    val darkMode: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            preferences[DARK_MODE] ?: 0 // Default to Light
         }
 
     suspend fun setCooldownEnabled(enabled: Boolean) {
@@ -67,6 +97,12 @@ class AppPreferences(private val context: Context) {
     suspend fun setVibrationIntensity(intensity: Int) {
         context.dataStore.edit { preferences ->
             preferences[VIBRATION_INTENSITY] = intensity
+        }
+    }
+    
+    suspend fun setDarkMode(mode: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[DARK_MODE] = mode
         }
     }
 }

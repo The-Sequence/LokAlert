@@ -114,7 +114,10 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            LokAlertTheme {
+            val appPreferences = remember { AppPreferences(applicationContext) }
+            val darkMode by appPreferences.darkMode.collectAsState(initial = 0)
+            
+            LokAlertTheme(darkMode = darkMode) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -215,6 +218,7 @@ fun LokAlertApp() {
     var titleColor by remember { mutableStateOf(Color(0xFF006DFF)) }
     var isRainbowEffectEnabled by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     val mapsViewModel: MapsViewModel = viewModel()
 
@@ -224,6 +228,13 @@ fun LokAlertApp() {
     // Guided Tour State
     var showGuidedTour by remember { mutableStateOf(false) }
     var tourStep by remember { mutableIntStateOf(0) }
+    
+    // Tour Prompt and Help Icon Spotlight State
+    val userPreferences = remember { Onboarding(context) }
+    val tourPromptShown by userPreferences.isTourPromptShown.collectAsState(initial = null)
+    val helpIconSpotlightShown by userPreferences.isHelpIconSpotlightShown.collectAsState(initial = null)
+    var showTourPrompt by remember { mutableStateOf(false) }
+    var showHelpIconSpotlight by remember { mutableStateOf(false) }
     
     // UI Element positions for spotlight
     var topBarBounds by remember { mutableStateOf<Rect?>(null) }
@@ -235,6 +246,13 @@ fun LokAlertApp() {
     var searchBarBounds by remember { mutableStateOf<Rect?>(null) }
     var mapAreaBounds by remember { mutableStateOf<Rect?>(null) }
     var setPinButtonBounds by remember { mutableStateOf<Rect?>(null) }
+    
+    // Show tour prompt after onboarding if not shown yet
+    LaunchedEffect(tourPromptShown) {
+        if (tourPromptShown == false) {
+            showTourPrompt = true
+        }
+    }
     
     // Tour-controlled screen (overrides user selection during tour)
     val effectiveScreen = if (showGuidedTour) {
@@ -350,6 +368,43 @@ fun LokAlertApp() {
                     )
                 }
             }
+        }
+        
+        // Tour Prompt Dialog
+        if (showTourPrompt && !showGuidedTour && !showHelpIconSpotlight) {
+            TourPromptDialog(
+                onStartTour = {
+                    showTourPrompt = false
+                    showGuidedTour = true
+                    tourStep = 0
+                    scope.launch {
+                        userPreferences.saveTourPromptShown()
+                    }
+                },
+                onDecline = {
+                    showTourPrompt = false
+                    scope.launch {
+                        userPreferences.saveTourPromptShown()
+                    }
+                    // Show help icon spotlight if not shown yet
+                    if (helpIconSpotlightShown == false) {
+                        showHelpIconSpotlight = true
+                    }
+                }
+            )
+        }
+        
+        // Help Icon Spotlight
+        if (showHelpIconSpotlight && helpIconBounds != null) {
+            HelpIconSpotlightOverlay(
+                helpIconBounds = helpIconBounds,
+                onFinish = {
+                    showHelpIconSpotlight = false
+                    scope.launch {
+                        userPreferences.saveHelpIconSpotlightShown()
+                    }
+                }
+            )
         }
         
         // Guided Tour Overlay
@@ -738,6 +793,53 @@ fun SettingsScreen(
             modifier = Modifier.padding(vertical = 8.dp)
         )
         
+        // Dark Mode Setting
+        val darkModeValue by appPreferences.darkMode.collectAsState(initial = 0)
+        
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            Text("Dark Mode", fontWeight = FontWeight.Medium)
+            Text(
+                when (darkModeValue) {
+                    0 -> "Light mode"
+                    1 -> "Dark Gray"
+                    2 -> "Pitch Black (AMOLED)"
+                    else -> "Light mode"
+                },
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.primary
+            )
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    0 to "Light",
+                    1 to "Dark",
+                    2 to "Black"
+                ).forEach { (mode, label) ->
+                    FilterChip(
+                        selected = darkModeValue == mode,
+                        onClick = {
+                            scope.launch {
+                                appPreferences.setDarkMode(mode)
+                            }
+                        },
+                        label = { Text(label) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+        
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -755,7 +857,7 @@ fun SettingsScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Title Color", color = if (isRainbowEnabled) Color.Gray else Color.Black)
+                Text("Title Color")
                 Icon(
                     if (showColorOptions) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                     contentDescription = "Toggle Title Color Options",
@@ -1286,6 +1388,14 @@ fun BoxScope.SpeechBubble(
     onSkip: () -> Unit
 ) {
     val density = LocalDensity.current
+    val configuration = LocalContext.current.resources.configuration
+    val screenWidthDp = configuration.screenWidthDp
+    
+    // Optimize width for foldable devices
+    val cardWidth = when {
+        screenWidthDp > 600 -> 320.dp // Tablets and unfolded devices
+        else -> 280.dp // Phones and folded devices
+    }
     
     // Calculate bubble position based on spotlight - make it narrower and more square
     val modifier = when (position) {
@@ -1293,25 +1403,25 @@ fun BoxScope.SpeechBubble(
             spotlightBounds?.let {
                 val offsetY = with(density) { (it.top - 220.dp.toPx()).toInt() }
                 Modifier
-                    .width(280.dp)  // Fixed width for square shape
+                    .width(cardWidth)  // Responsive width for foldables
                     .offset { IntOffset(0, offsetY) }
             } ?: Modifier
-                .width(280.dp)
+                .width(cardWidth)
                 .align(Alignment.TopCenter)
         }
         BubblePosition.BELOW -> {
             spotlightBounds?.let {
                 val offsetY = with(density) { (it.bottom + 20.dp.toPx()).toInt() }
                 Modifier
-                    .width(280.dp)  // Fixed width for square shape
+                    .width(cardWidth)  // Responsive width for foldables
                     .offset { IntOffset(0, offsetY) }
             } ?: Modifier
-                .width(280.dp)
+                .width(cardWidth)
                 .align(Alignment.BottomCenter)
         }
         BubblePosition.CENTER -> {
             Modifier
-                .width(280.dp)  // Fixed width for square shape
+                .width(cardWidth)  // Responsive width for foldables
                 .align(Alignment.Center)
         }
     }
@@ -1380,6 +1490,171 @@ fun BoxScope.SpeechBubble(
                 } else if (onNext != null) {
                     Button(onClick = onNext) {
                         Text("Next →")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TourPromptDialog(
+    onStartTour: () -> Unit,
+    onDecline: () -> Unit
+) {
+    val configuration = LocalContext.current.resources.configuration
+    val screenWidthDp = configuration.screenWidthDp
+    
+    // Optimize width for foldable devices
+    val dialogWidth = when {
+        screenWidthDp > 600 -> 320.dp // Tablets and unfolded devices
+        else -> 280.dp // Phones and folded devices
+    }
+    
+    AlertDialog(
+        onDismissRequest = onDecline,
+        title = {
+            Text(
+                text = "Take a Quick Tour?",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        text = {
+            Text(
+                text = "Would you like a quick guided tour to learn how to use LokAlert? It only takes a minute!",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onStartTour,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Yes, Show Me Around! 🎉")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDecline,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("No Thanks")
+            }
+        },
+        modifier = Modifier.width(dialogWidth)
+    )
+}
+
+@Composable
+fun HelpIconSpotlightOverlay(
+    helpIconBounds: Rect?,
+    onFinish: () -> Unit
+) {
+    val configuration = LocalContext.current.resources.configuration
+    val screenWidthDp = configuration.screenWidthDp
+    
+    // Optimize width for foldable devices
+    val cardWidth = when {
+        screenWidthDp > 600 -> 320.dp // Tablets and unfolded devices
+        else -> 280.dp // Phones and folded devices
+    }
+    
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                // Block all touches except the card
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent()
+                    }
+                }
+            }
+    ) {
+        // Dark overlay with spotlight cutout
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val overlayPath = Path().apply {
+                fillType = PathFillType.EvenOdd
+                addRect(Rect(Offset.Zero, size))
+            }
+            
+            // Cut out circular spotlight for help icon
+            helpIconBounds?.let { bounds ->
+                val centerX = bounds.left + (bounds.right - bounds.left) / 2
+                val centerY = bounds.top + (bounds.bottom - bounds.top) / 2
+                val radius = maxOf(bounds.width, bounds.height) / 2 + 8.dp.toPx()
+                
+                overlayPath.addOval(
+                    Rect(
+                        center = Offset(centerX, centerY),
+                        radius = radius
+                    )
+                )
+            }
+            
+            drawPath(
+                path = overlayPath,
+                color = Color.Black.copy(alpha = 0.6f)
+            )
+        }
+        
+        // Info card below help icon
+        helpIconBounds?.let { bounds ->
+            val density = LocalDensity.current
+            val offsetY = with(density) { (bounds.bottom + 20.dp.toPx()).toInt() }
+            
+            Card(
+                modifier = Modifier
+                    .width(cardWidth)
+                    .offset { IntOffset(0, offsetY) }
+                    .align(Alignment.TopCenter),
+                shape = RoundedCornerShape(20.dp),
+                colors = androidx.compose.material3.CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Icon
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Help,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    
+                    // Title
+                    Text(
+                        text = "Need Help?",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    
+                    // Message
+                    Text(
+                        text = "Tap the Help icon anytime to start the guided tour and learn how to use LokAlert!",
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    
+                    // Got It button
+                    Button(
+                        onClick = onFinish,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Got It!")
                     }
                 }
             }

@@ -44,7 +44,7 @@ class AlarmActivity : ComponentActivity() {
         val alarmName = intent.getStringExtra("ALARM_NAME") ?: "Alarm"
 
         setContent {
-            LokAlertTheme(darkTheme = true) {
+            LokAlertTheme(darkMode = 2) { // Use Pitch Black mode
                 Column(
                     modifier = Modifier
                         .fillMaxSize()

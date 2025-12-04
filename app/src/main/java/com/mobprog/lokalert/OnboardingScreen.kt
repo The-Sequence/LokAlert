@@ -5,7 +5,9 @@ import android.app.AlarmManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -54,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -65,7 +68,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun OnboardingScreen(onFinished: () -> Unit) {
-    val pageCount = 3
+    val pageCount = 5
     val pagerState = rememberPagerState(pageCount = { pageCount })
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -74,6 +77,8 @@ fun OnboardingScreen(onFinished: () -> Unit) {
     var page1PermissionsGranted by remember { mutableStateOf(true) }
     var page2PermissionsGranted by remember { mutableStateOf(false) }
     var page3PermissionsGranted by remember { mutableStateOf(false) }
+    var page4PermissionsGranted by remember { mutableStateOf(false) }
+    var page5PermissionsGranted by remember { mutableStateOf(false) }
 
     // Mutable state for permission status that updates immediately
     var notificationGranted by remember {
@@ -103,6 +108,14 @@ fun OnboardingScreen(onFinished: () -> Unit) {
     }
 
     var hasAlarmPermission by remember { mutableStateOf(checkAlarmPermission(context)) }
+
+    var batteryOptimizationIgnored by remember { 
+        mutableStateOf(checkBatteryOptimization(context)) 
+    }
+    
+    var hasOverlayPermission by remember {
+        mutableStateOf(Settings.canDrawOverlays(context))
+    }
 
     // Notification permission launcher
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -142,6 +155,8 @@ fun OnboardingScreen(onFinished: () -> Unit) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 hasAlarmPermission = checkAlarmPermission(context)
+                batteryOptimizationIgnored = checkBatteryOptimization(context)
+                hasOverlayPermission = Settings.canDrawOverlays(context)
                 // Also refresh other permissions on resume
                 notificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     ContextCompat.checkSelfPermission(
@@ -181,11 +196,23 @@ fun OnboardingScreen(onFinished: () -> Unit) {
         onDispose {}
     }
 
+    DisposableEffect(hasOverlayPermission) {
+        page4PermissionsGranted = hasOverlayPermission
+        onDispose {}
+    }
+
+    DisposableEffect(batteryOptimizationIgnored) {
+        page5PermissionsGranted = batteryOptimizationIgnored
+        onDispose {}
+    }
+
     // Determine if Next button should be enabled
     val isNextButtonEnabled = when (pagerState.currentPage) {
         0 -> page1PermissionsGranted
         1 -> page2PermissionsGranted
         2 -> page3PermissionsGranted
+        3 -> page4PermissionsGranted
+        4 -> page5PermissionsGranted
         else -> false
     }
 
@@ -275,6 +302,27 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                                 Manifest.permission.ACCESS_COARSE_LOCATION
                             )
                         )
+                    }
+                )
+                3 -> OverlayPermissionPage(
+                    hasOverlayPermission = hasOverlayPermission,
+                    onRequestOverlayPermission = {
+                        val intent = Intent(
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:${context.packageName}")
+                        )
+                        context.startActivity(intent)
+                    }
+                )
+                4 -> BatteryOptimizationPage(
+                    isBatteryOptimizationIgnored = batteryOptimizationIgnored,
+                    onRequestBatteryOptimization = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = Uri.parse("package:${context.packageName}")
+                            }
+                            context.startActivity(intent)
+                        }
                     }
                 )
             }
@@ -384,6 +432,106 @@ fun LocationPage(
 }
 
 @Composable
+fun OverlayPermissionPage(
+    hasOverlayPermission: Boolean,
+    onRequestOverlayPermission: () -> Unit
+) {
+    val deviceManufacturer = Build.MANUFACTURER.lowercase()
+    val isOnePlus = deviceManufacturer.contains("oneplus")
+    
+    OnboardingPage(
+        title = "Display Over Other Apps",
+        description = "Allow LokAlert to show alarm overlay on your screen, including lock screen.",
+        icon = Icons.Rounded.Notifications
+    ) {
+        PermissionRequestCard(
+            title = "Overlay Permission",
+            isGranted = hasOverlayPermission,
+            onGrantClick = onRequestOverlayPermission
+        )
+        
+        if (isOnePlus) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Text(
+                        text = "OnePlus/ColorOS Users:",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "You may need to enable 'Display on lockscreen' permission in Settings > Apps > LokAlert > Permissions for alarms to work on the lock screen.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun BatteryOptimizationPage(
+    isBatteryOptimizationIgnored: Boolean,
+    onRequestBatteryOptimization: () -> Unit
+) {
+    val deviceManufacturer = Build.MANUFACTURER.lowercase()
+    val isXiaomi = deviceManufacturer.contains("xiaomi") || deviceManufacturer.contains("redmi")
+    
+    OnboardingPage(
+        title = "Battery Optimization",
+        description = "Disable battery optimization to ensure LokAlert runs reliably in the background.",
+        icon = Icons.Filled.FavoriteBorder
+    ) {
+        PermissionRequestCard(
+            title = "Disable Battery Optimization",
+            isGranted = isBatteryOptimizationIgnored,
+            onGrantClick = onRequestBatteryOptimization
+        )
+        
+        if (isXiaomi) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Text(
+                        text = "Xiaomi/MIUI Users:",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "For reliable alarms, please also:\n" +
+                               "1. Go to Settings > Apps > Manage apps > LokAlert\n" +
+                               "2. Enable 'Autostart'\n" +
+                               "3. Set Battery saver to 'No restrictions'\n" +
+                               "4. Lock the app in recent apps",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun PermissionRequestCard(
     title: String,
     isGranted: Boolean,
@@ -437,3 +585,15 @@ fun checkAlarmPermission(context: Context): Boolean {
     }
 }
 
+fun checkBatteryOptimization(context: Context): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        powerManager.isIgnoringBatteryOptimizations(context.packageName)
+    } else {
+        true
+    }
+}
+
+fun getDeviceManufacturer(): String {
+    return Build.MANUFACTURER
+}
