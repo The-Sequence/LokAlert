@@ -214,7 +214,7 @@ fun LokAlertApp() {
                     viewModel = mapsViewModel,
                     onViewOnMap = {
                         // Switch to Map screen when "View on Map" is clicked in the sheet
-                        currentScreen = "Maps"
+                        currentScreen = "Mapz"
                     }
                 )
                 "Settings" -> SettingsScreen(
