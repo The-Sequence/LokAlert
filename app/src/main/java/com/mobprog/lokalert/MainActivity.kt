@@ -1,27 +1,39 @@
 package com.mobprog.lokalert
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector4D
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.TwoWayConverter
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,18 +42,24 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Help
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -79,6 +97,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -87,6 +106,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -115,7 +135,18 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val appPreferences = remember { AppPreferences(applicationContext) }
-            val darkMode by appPreferences.darkMode.collectAsState(initial = 0)
+            val isSystemInDarkTheme = isSystemInDarkTheme()
+            val savedDarkMode by appPreferences.darkMode.collectAsState(initial = null)
+            
+            // Use system theme on first launch, then user preference
+            val darkMode = savedDarkMode ?: if (isSystemInDarkTheme) 1 else 0
+            
+            // Save the initial theme based on system if not set
+            LaunchedEffect(savedDarkMode) {
+                if (savedDarkMode == null) {
+                    appPreferences.setDarkMode(if (isSystemInDarkTheme) 1 else 0)
+                }
+            }
             
             LokAlertTheme(darkMode = darkMode) {
                 Surface(
@@ -236,6 +267,10 @@ fun LokAlertApp() {
     var showTourPrompt by remember { mutableStateOf(false) }
     var showHelpIconSpotlight by remember { mutableStateOf(false) }
     
+    // Get dark mode preference
+    val appPreferences = remember { AppPreferences(context) }
+    val darkMode by appPreferences.darkMode.collectAsState(initial = 0)
+    
     // UI Element positions for spotlight
     var topBarBounds by remember { mutableStateOf<Rect?>(null) }
     var bottomNavBounds by remember { mutableStateOf<Rect?>(null) }
@@ -351,7 +386,8 @@ fun LokAlertApp() {
                                 currentScreen = "Locations"
                             }
                         },
-                        viewModel = mapsViewModel
+                        viewModel = mapsViewModel,
+                        darkMode = darkMode
                     )
                     "Locations" -> LocationsScreen(
                         recentSearches = recentSearches,
@@ -572,317 +608,274 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val appPreferences = remember { AppPreferences(context) }
     
-    val isCooldownEnabled by appPreferences.isCooldownEnabled.collectAsState(initial = false)
-    val cooldownMinutes by appPreferences.cooldownMinutes.collectAsState(initial = 5)
-
-    var showColorOptions by remember { mutableStateOf(false) }
-    var selectedColorIndex by remember { mutableIntStateOf(3) } // Default to "Mono"
-    var showCooldownOptions by remember { mutableStateOf(false) }
+    // Detect screen size for responsive layout
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val screenWidth = configuration.screenWidthDp.dp
+    val isWideScreen = screenWidth > 600.dp
     
-    val colorOptions = mapOf(
-        "Red" to Color.Red,
-        "Green" to Color.Green,
-        "Blue" to Color.Blue,
-        "Mono" to if (isSystemInDarkTheme()) Color.White else Color.Black
-    )
-    val colorOptionKeys = colorOptions.keys.toList()
+    // Selected setting category for two-pane layout
+    var selectedCategory by remember { mutableStateOf("Cooldown") }
+    
+    if (isWideScreen) {
+        // Two-pane iPad-style layout
+        Row(modifier = Modifier.fillMaxSize()) {
+            // Left Pane: Setting Categories
+            SettingsCategoriesList(
+                selectedCategory = selectedCategory,
+                onCategorySelected = { selectedCategory = it },
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(280.dp)
+            )
+            
+            // Divider
+            VerticalDivider()
+            
+            // Right Pane: Selected Setting Details
+            SettingsDetailPane(
+                selectedCategory = selectedCategory,
+                appPreferences = appPreferences,
+                context = context,
+                scope = scope,
+                onColorChange = onColorChange,
+                isRainbowEnabled = isRainbowEnabled,
+                onRainbowToggle = onRainbowToggle,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .weight(1f)
+            )
+        }
+    } else {
+        // Single column layout for phones (original behavior)
+        SettingsSingleColumnLayout(
+            appPreferences = appPreferences,
+            context = context,
+            scope = scope,
+            onColorChange = onColorChange,
+            isRainbowEnabled = isRainbowEnabled,
+            onRainbowToggle = onRainbowToggle
+        )
+    }
+}
 
+@Composable
+fun VerticalDivider() {
+    Box(
+        modifier = Modifier
+            .fillMaxHeight()
+            .width(1.dp)
+            .background(MaterialTheme.colorScheme.outlineVariant)
+    )
+}
+
+@Composable
+fun SettingsCategoriesList(
+    selectedCategory: String,
+    onCategorySelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val categories = listOf(
+        "Cooldown",
+        "Default Sound",
+        "Vibration",
+        "Dark Mode",
+        "Title Style",
+        "About"
+    )
+    
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(top = 16.dp)
     ) {
-        Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "Settings",
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+        )
+        
         Spacer(modifier = Modifier.height(16.dp))
         
-        // Alarm Settings Section
-        Text(
-            "Alarm Settings",
-            fontSize = 18.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(vertical = 8.dp)
-        )
-        
-        // Cooldown Settings
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp)
-                .clickable { showCooldownOptions = !showCooldownOptions }
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Re-trigger Cooldown", fontWeight = FontWeight.Medium)
-                    Text(
-                        if (!isCooldownEnabled) "Disabled - Alarms reset when leaving radius"
-                        else "Enabled - ${cooldownMinutes} minute cooldown",
-                        fontSize = 12.sp,
-                        color = if (isCooldownEnabled) MaterialTheme.colorScheme.primary else Color.Gray
-                    )
-                }
-                Icon(
-                    if (showCooldownOptions) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    contentDescription = "Toggle Cooldown Options",
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+        categories.forEach { category ->
+            val isSelected = category == selectedCategory
             
-            if (showCooldownOptions) {
-                Spacer(modifier = Modifier.height(12.dp))
-                
-                // Disable completely option
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onCategorySelected(category) },
+                color = if (isSelected) {
+                    MaterialTheme.colorScheme.secondaryContainer
+                } else {
+                    Color.Transparent
+                }
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable {
-                            scope.launch {
-                                appPreferences.setCooldownEnabled(false)
-                            }
-                        }
-                        .padding(vertical = 8.dp),
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    RadioButton(
-                        selected = !isCooldownEnabled,
-                        onClick = {
-                            scope.launch {
-                                appPreferences.setCooldownEnabled(false)
-                            }
+                    Text(
+                        text = category,
+                        fontSize = 16.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
                         }
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text("Disable cooldown completely", fontWeight = FontWeight.Medium)
-                        Text(
-                            "Alarms reset when you leave the radius",
-                            fontSize = 11.sp,
-                            color = Color.Gray
-                        )
-                    }
-                }
-                
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                
-                // Enable with duration options
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            scope.launch {
-                                appPreferences.setCooldownEnabled(true)
-                            }
-                        }
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    RadioButton(
-                        selected = isCooldownEnabled,
-                        onClick = {
-                            scope.launch {
-                                appPreferences.setCooldownEnabled(true)
-                            }
-                        }
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Enable time-based cooldown", fontWeight = FontWeight.Medium)
-                        Text(
-                            "Alarms won't re-trigger for a set duration",
-                            fontSize = 11.sp,
-                            color = Color.Gray
-                        )
-                        
-                        if (isCooldownEnabled) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("Duration:", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            
-                            // Duration chips
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                listOf(1, 3, 5).forEach { minutes ->
-                                    FilterChip(
-                                        selected = cooldownMinutes == minutes,
-                                        onClick = {
-                                            scope.launch {
-                                                appPreferences.setCooldownMinutes(minutes)
-                                            }
-                                        },
-                                        label = { Text("${minutes}m", fontSize = 12.sp) },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                listOf(10, 15, 30).forEach { minutes ->
-                                    FilterChip(
-                                        selected = cooldownMinutes == minutes,
-                                        onClick = {
-                                            scope.launch {
-                                                appPreferences.setCooldownMinutes(minutes)
-                                            }
-                                        },
-                                        label = { Text("${minutes}m", fontSize = 12.sp) },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-        
-        // Vibration Settings
-        val vibrationIntensity by appPreferences.vibrationIntensity.collectAsState(initial = 2)
-        
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp)
-        ) {
-            Text("Vibration Intensity", fontWeight = FontWeight.Medium)
-            Text(
-                "Controls vibration strength when alarm triggers",
-                fontSize = 12.sp,
-                color = Color.Gray
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(
-                    0 to "Low",
-                    1 to "Medium",
-                    2 to "Strong"
-                ).forEach { (intensity, label) ->
-                    FilterChip(
-                        selected = vibrationIntensity == intensity,
-                        onClick = {
-                            scope.launch {
-                                appPreferences.setVibrationIntensity(intensity)
-                            }
-                        },
-                        label = { Text(label) },
-                        modifier = Modifier.weight(1f)
                     )
                 }
             }
         }
-        
-        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-        
-        // Appearance Settings Section
+    }
+}
+
+@Composable
+fun SettingsDetailPane(
+    selectedCategory: String,
+    appPreferences: AppPreferences,
+    context: android.content.Context,
+    scope: kotlinx.coroutines.CoroutineScope,
+    onColorChange: (Color) -> Unit,
+    isRainbowEnabled: Boolean,
+    onRainbowToggle: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .verticalScroll(rememberScrollState())
+            .padding(32.dp)
+    ) {
+        when (selectedCategory) {
+            "Cooldown" -> CooldownSettingDetail(appPreferences, scope)
+            "Default Sound" -> DefaultSoundSettingDetail(appPreferences, context, scope)
+            "Vibration" -> VibrationSettingDetail(appPreferences, scope)
+            "Dark Mode" -> DarkModeSettingDetail(appPreferences, scope)
+            "Title Style" -> TitleStyleSettingDetail(onColorChange, isRainbowEnabled, onRainbowToggle)
+            "About" -> AboutUsDetailPane()
+        }
+    }
+}
+
+// Individual Setting Detail Panes
+@Composable
+fun CooldownSettingDetail(appPreferences: AppPreferences, scope: kotlinx.coroutines.CoroutineScope) {
+    val isCooldownEnabled by appPreferences.isCooldownEnabled.collectAsState(initial = false)
+    val cooldownMinutes by appPreferences.cooldownMinutes.collectAsState(initial = 5)
+    
+    Column {
+        Text("Re-trigger Cooldown", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
-            "Appearance",
-            fontSize = 18.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(vertical = 8.dp)
+            "Control how alarms behave when you leave and re-enter a location",
+            fontSize = 14.sp,
+            color = Color.Gray
         )
         
-        // Dark Mode Setting
-        val darkModeValue by appPreferences.darkMode.collectAsState(initial = 0)
+        Spacer(modifier = Modifier.height(24.dp))
         
-        Column(
+        // Disable option
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp)
-        ) {
-            Text("Dark Mode", fontWeight = FontWeight.Medium)
-            Text(
-                when (darkModeValue) {
-                    0 -> "Light mode"
-                    1 -> "Dark Gray"
-                    2 -> "Pitch Black (AMOLED)"
-                    else -> "Light mode"
-                },
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.primary
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(
-                    0 to "Light",
-                    1 to "Dark",
-                    2 to "Black"
-                ).forEach { (mode, label) ->
-                    FilterChip(
-                        selected = darkModeValue == mode,
-                        onClick = {
-                            scope.launch {
-                                appPreferences.setDarkMode(mode)
-                            }
-                        },
-                        label = { Text(label) },
-                        modifier = Modifier.weight(1f)
-                    )
+                .clickable {
+                    scope.launch {
+                        appPreferences.setCooldownEnabled(false)
+                    }
                 }
-            }
-        }
-        
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-        
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Rainbow Title")
-            Switch(checked = isRainbowEnabled, onCheckedChange = onRainbowToggle)
-        }
-
-        Column(modifier = Modifier.clickable(enabled = !isRainbowEnabled) {
-            showColorOptions = !showColorOptions
-        }) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Title Color")
-                Icon(
-                    if (showColorOptions) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    contentDescription = "Toggle Title Color Options",
-                    tint = if (isRainbowEnabled) Color.Gray else Color.Black
+            RadioButton(
+                selected = !isCooldownEnabled,
+                onClick = {
+                    scope.launch {
+                        appPreferences.setCooldownEnabled(false)
+                    }
+                }
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text("Disabled", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text(
+                    "Alarms reset immediately when you leave the radius",
+                    fontSize = 13.sp,
+                    color = Color.Gray
                 )
             }
-
-            if (showColorOptions && !isRainbowEnabled) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceAround
-                ) {
-                    SingleChoiceSegmentedButtonRow {
-                        colorOptionKeys.forEachIndexed { index, name ->
-                            val colorValue = colorOptions[name]!!
-                            SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(index = index, count = colorOptionKeys.size),
+        }
+        
+        HorizontalDivider()
+        
+        // Enable option
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    scope.launch {
+                        appPreferences.setCooldownEnabled(true)
+                    }
+                }
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            RadioButton(
+                selected = isCooldownEnabled,
+                onClick = {
+                    scope.launch {
+                        appPreferences.setCooldownEnabled(true)
+                    }
+                }
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Enabled", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text(
+                    "Alarms won't re-trigger for a set duration",
+                    fontSize = 13.sp,
+                    color = Color.Gray
+                )
+                
+                if (isCooldownEnabled) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Cooldown Duration", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(1, 3, 5).forEach { minutes ->
+                            FilterChip(
+                                selected = cooldownMinutes == minutes,
                                 onClick = {
-                                    selectedColorIndex = index
-                                    onColorChange(colorValue)
+                                    scope.launch {
+                                        appPreferences.setCooldownMinutes(minutes)
+                                    }
                                 },
-                                selected = index == selectedColorIndex
-                            ) {
-                                Text(name)
-                            }
+                                label = { Text("${minutes}m") },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(10, 15, 30).forEach { minutes ->
+                            FilterChip(
+                                selected = cooldownMinutes == minutes,
+                                onClick = {
+                                    scope.launch {
+                                        appPreferences.setCooldownMinutes(minutes)
+                                    }
+                                },
+                                label = { Text("${minutes}m") },
+                                modifier = Modifier.weight(1f)
+                            )
                         }
                     }
                 }
@@ -892,8 +885,481 @@ fun SettingsScreen(
 }
 
 @Composable
+fun DefaultSoundSettingDetail(
+    appPreferences: AppPreferences,
+    context: android.content.Context,
+    scope: kotlinx.coroutines.CoroutineScope
+) {
+    val defaultAlarmSound by appPreferences.defaultAlarmSound.collectAsState(initial = "")
+    var showSoundPickerDialog by remember { mutableStateOf(false) }
+    
+    val ringtoneLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)?.let { uri ->
+            scope.launch {
+                appPreferences.setDefaultAlarmSound(uri.toString())
+            }
+        }
+    }
+    
+    val audioFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    it,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (e: Exception) { }
+            scope.launch {
+                appPreferences.setDefaultAlarmSound(it.toString())
+            }
+        }
+    }
+    
+    fun getSoundTitle(uriString: String): String {
+        if (uriString.isEmpty()) return "System Default"
+        return try {
+            val ringtone = RingtoneManager.getRingtone(context, Uri.parse(uriString))
+            ringtone?.getTitle(context) ?: run {
+                val uri = Uri.parse(uriString)
+                val cursor = context.contentResolver.query(uri, null, null, null, null)
+                cursor?.use {
+                    if (it.moveToFirst()) {
+                        val nameIndex = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (nameIndex != -1) {
+                            it.getString(nameIndex) ?: "Custom Sound"
+                        } else "Custom Sound"
+                    } else "Custom Sound"
+                } ?: "Custom Sound"
+            }
+        } catch (e: Exception) {
+            uriString.substringAfterLast("/").substringBeforeLast(".").takeIf { it.isNotEmpty() } ?: "Custom Sound"
+        }
+    }
+    
+    Column {
+        Text("Default Alarm Sound", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            "Choose the sound used for new alarms",
+            fontSize = 14.sp,
+            color = Color.Gray
+        )
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Text("Current Sound", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            getSoundTitle(defaultAlarmSound),
+            fontSize = 16.sp,
+            color = MaterialTheme.colorScheme.primary
+        )
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Button(
+            onClick = { showSoundPickerDialog = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.MusicNote, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Change Sound")
+        }
+    }
+    
+    if (showSoundPickerDialog) {
+        AlertDialog(
+            onDismissRequest = { showSoundPickerDialog = false },
+            title = { Text("Choose Alarm Sound") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Select the default sound for alarms",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showSoundPickerDialog = false
+                                val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Select Alarm Sound")
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                                    if (defaultAlarmSound.isNotEmpty()) {
+                                        try {
+                                            putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(defaultAlarmSound))
+                                        } catch (e: Exception) { }
+                                    }
+                                }
+                                ringtoneLauncher.launch(intent)
+                            },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.MusicNote,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    "System Ringtones",
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Text(
+                                    "Choose from built-in alarm sounds",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                    }
+                    
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showSoundPickerDialog = false
+                                audioFileLauncher.launch("audio/*")
+                            },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.AudioFile,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    "Custom Audio File",
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                Text(
+                                    "Browse your device for MP3, WAV, etc.",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSoundPickerDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun VibrationSettingDetail(appPreferences: AppPreferences, scope: kotlinx.coroutines.CoroutineScope) {
+    val vibrationIntensity by appPreferences.vibrationIntensity.collectAsState(initial = 2)
+    
+    Column {
+        Text("Vibration Intensity", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            "Controls vibration strength when alarm triggers",
+            fontSize = 14.sp,
+            color = Color.Gray
+        )
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            listOf(
+                0 to "Low",
+                1 to "Medium",
+                2 to "Strong"
+            ).forEach { (intensity, label) ->
+                FilterChip(
+                    selected = vibrationIntensity == intensity,
+                    onClick = {
+                        scope.launch {
+                            appPreferences.setVibrationIntensity(intensity)
+                        }
+                    },
+                    label = { Text(label) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun DarkModeSettingDetail(appPreferences: AppPreferences, scope: kotlinx.coroutines.CoroutineScope) {
+    val darkModeValue by appPreferences.darkMode.collectAsState(initial = 0)
+    
+    Column {
+        Text("Dark Mode", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            "Choose your preferred theme",
+            fontSize = 14.sp,
+            color = Color.Gray
+        )
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            listOf(
+                0 to "Light",
+                1 to "Dark",
+                2 to "Black"
+            ).forEach { (mode, label) ->
+                FilterChip(
+                    selected = darkModeValue == mode,
+                    onClick = {
+                        scope.launch {
+                            appPreferences.setDarkMode(mode)
+                        }
+                    },
+                    label = { Text(label) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Text(
+            when (darkModeValue) {
+                0 -> "Light mode uses bright colors"
+                1 -> "Dark Gray mode is easier on the eyes"
+                2 -> "Pitch Black mode is perfect for AMOLED screens"
+                else -> ""
+            },
+            fontSize = 13.sp,
+            color = Color.Gray
+        )
+    }
+}
+
+@Composable
+fun TitleStyleSettingDetail(
+    onColorChange: (Color) -> Unit,
+    isRainbowEnabled: Boolean,
+    onRainbowToggle: (Boolean) -> Unit
+) {
+    var showColorOptions by remember { mutableStateOf(false) }
+    var selectedColorIndex by remember { mutableIntStateOf(3) }
+    
+    val colorOptions = mapOf(
+        "Red" to Color.Red,
+        "Green" to Color.Green,
+        "Blue" to Color.Blue,
+        "Mono" to if (isSystemInDarkTheme()) Color.White else Color.Black
+    )
+    val colorOptionKeys = colorOptions.keys.toList()
+    
+    Column {
+        Text("Title Style", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            "Customize the LokAlert title appearance",
+            fontSize = 14.sp,
+            color = Color.Gray
+        )
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("Rainbow Effect", fontWeight = FontWeight.Medium, fontSize = 16.sp)
+                Text("Animated color cycling", fontSize = 13.sp, color = Color.Gray)
+            }
+            Switch(checked = isRainbowEnabled, onCheckedChange = onRainbowToggle)
+        }
+        
+        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+        
+        Column(modifier = Modifier.clickable(enabled = !isRainbowEnabled) {
+            showColorOptions = !showColorOptions
+        }) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        "Title Color",
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 16.sp,
+                        color = if (isRainbowEnabled) Color.Gray else MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        if (isRainbowEnabled) "Disabled when rainbow is on" else "Choose a static color",
+                        fontSize = 13.sp,
+                        color = Color.Gray
+                    )
+                }
+                Icon(
+                    if (showColorOptions) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = if (isRainbowEnabled) Color.Gray else MaterialTheme.colorScheme.onSurface
+                )
+            }
+            
+            if (showColorOptions && !isRainbowEnabled) {
+                Spacer(modifier = Modifier.height(16.dp))
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    colorOptionKeys.forEachIndexed { index, name ->
+                        val colorValue = colorOptions[name]!!
+                        SegmentedButton(
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = colorOptionKeys.size),
+                            onClick = {
+                                selectedColorIndex = index
+                                onColorChange(colorValue)
+                            },
+                            selected = index == selectedColorIndex
+                        ) {
+                            Text(name)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AboutUsDetailPane() {
+    AboutUsScreen(onDismiss = {}, isEmbedded = true)
+}
+
+@Composable
+fun SettingsSingleColumnLayout(
+    appPreferences: AppPreferences,
+    context: android.content.Context,
+    scope: kotlinx.coroutines.CoroutineScope,
+    onColorChange: (Color) -> Unit,
+    isRainbowEnabled: Boolean,
+    onRainbowToggle: (Boolean) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+    ) {
+        Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        CooldownSettingDetail(appPreferences, scope)
+        HorizontalDivider(modifier = Modifier.padding(vertical = 20.dp))
+        
+        DefaultSoundSettingDetail(appPreferences, context, scope)
+        HorizontalDivider(modifier = Modifier.padding(vertical = 20.dp))
+        
+        VibrationSettingDetail(appPreferences, scope)
+        HorizontalDivider(modifier = Modifier.padding(vertical = 20.dp))
+        
+        DarkModeSettingDetail(appPreferences, scope)
+        HorizontalDivider(modifier = Modifier.padding(vertical = 20.dp))
+        
+        TitleStyleSettingDetail(onColorChange, isRainbowEnabled, onRainbowToggle)
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        var showAboutUs by remember { mutableStateOf(false) }
+        
+        OutlinedButton(
+            onClick = { showAboutUs = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.AutoMirrored.Filled.Help, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("About Us")
+        }
+        
+        if (showAboutUs) {
+            AboutUsScreen(onDismiss = { showAboutUs = false })
+        }
+    }
+}
+
+// Helper composable for responsive two-column settings layout
+@Composable
+fun SettingItem(
+    isWideScreen: Boolean,
+    label: String,
+    content: @Composable () -> Unit
+) {
+    if (isWideScreen) {
+        // Two-column layout for wide screens
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Left column: Label
+            Text(
+                text = label,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(0.35f),
+                style = MaterialTheme.typography.titleMedium
+            )
+            // Right column: Content
+            Box(modifier = Modifier.weight(0.65f)) {
+                content()
+            }
+        }
+    } else {
+        // Single column layout for narrow screens
+        content()
+    }
+}
+
+@Composable
 fun BottomNavBar(
-    currentScreen: String, 
+    currentScreen: String,
     onScreenSelected: (String) -> Unit,
     onBottomNavPositioned: (Rect) -> Unit = {},
     onMapTabPositioned: (Rect) -> Unit = {},
@@ -912,10 +1378,10 @@ fun BottomNavBar(
         }
     ) {
         NavigationBarItem(
+            icon = { Icon(Icons.Default.Map, contentDescription = "Map") },
+            label = { Text("Map") },
             selected = currentScreen == "Maps",
             onClick = { onScreenSelected("Maps") },
-            icon = { Icon(Icons.Default.Map, contentDescription = null) },
-            label = { Text("Map") },
             modifier = Modifier.onGloballyPositioned { coordinates ->
                 val position = coordinates.positionInWindow()
                 val size = coordinates.size
@@ -928,10 +1394,10 @@ fun BottomNavBar(
             }
         )
         NavigationBarItem(
+            icon = { Icon(Icons.Default.Alarm, contentDescription = "Alarms") },
+            label = { Text("Alarms") },
             selected = currentScreen == "Locations",
             onClick = { onScreenSelected("Locations") },
-            icon = { Icon(Icons.Default.Place, contentDescription = null) },
-            label = { Text("Locations") },
             modifier = Modifier.onGloballyPositioned { coordinates ->
                 val position = coordinates.positionInWindow()
                 val size = coordinates.size
@@ -947,242 +1413,238 @@ fun BottomNavBar(
 }
 
 @Composable
-fun HelpDialog(onDismiss: () -> Unit, onStartTour: () -> Unit = {}) {
-    // Show Help Options
+fun HelpDialog(
+    onDismiss: () -> Unit,
+    onStartTour: () -> Unit
+) {
     AlertDialog(
-            onDismissRequest = onDismiss,
-            icon = {
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Icon(
                     Icons.AutoMirrored.Filled.Help,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(28.dp)
                 )
-            },
-            title = {
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Welcome to LokAlert",
+                    "Need Help?",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Text(
-                        text = "Never miss your stop or forget location-based tasks!",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    
-                    Card(
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            HelpOption(
-                                emoji = "🗺️",
-                                title = "Map Screen",
-                                description = "Search, pin, and set location alarms"
-                            )
-                            HelpOption(
-                                emoji = "📍",
-                                title = "Locations",
-                                description = "Manage saved alarms and favorites"
-                            )
-                            HelpOption(
-                                emoji = "⚙️",
-                                title = "Settings",
-                                description = "Customize app appearance"
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(onClick = onStartTour) {
-                    Text("Start Interactive Tour")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = onDismiss) {
-                    Text("Got it!")
-                }
-            }
-        )
-}
-
-@Composable
-fun HelpOption(emoji: String, title: String, description: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        Text(
-            text = emoji,
-            fontSize = 24.sp,
-            modifier = Modifier.padding(top = 2.dp)
-        )
-        Column {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-fun GuidedTourDialog(onClose: () -> Unit) {
-    var currentStep by remember { mutableIntStateOf(0) }
-    
-    val tourSteps = listOf(
-        TourStep(
-            emoji = "🗺️",
-            title = "Map Screen",
-            description = "This is where you set up location-based alarms.",
-            details = listOf(
-                "Search for any location using the search bar",
-                "Long-press on the map to drop a pin",
-                "Drag the pin to fine-tune the position",
-                "Tap 'My Location' to jump to your current position"
-            )
-        ),
-        TourStep(
-            emoji = "📍",
-            title = "Setting an Alarm",
-            description = "Configure your location alarm:",
-            details = listOf(
-                "Tap 'Set Pin' or 'Edit Pin' button",
-                "Name your alarm (e.g., 'Office', 'Home')",
-                "Choose active days of the week",
-                "Pick your alarm sound",
-                "Adjust the detection radius with the slider"
-            )
-        ),
-        TourStep(
-            emoji = "📋",
-            title = "Locations Screen",
-            description = "Manage all your saved alarms:",
-            details = listOf(
-                "View recent searches",
-                "Toggle alarms on/off",
-                "Favorite important locations with ❤️",
-                "View on map or delete alarms",
-                "Filter to show only favorites"
-            )
-        ),
-        TourStep(
-            emoji = "💡",
-            title = "Pro Tips",
-            description = "Get the most out of LokAlert:",
-            details = listOf(
-                "The circle on the map shows your alarm radius",
-                "Gradual volume starts quiet and increases",
-                "Long-press anywhere to quickly set a pin",
-                "Drag the pin to adjust exact location",
-                "Enable location permissions for best results"
-            )
-        )
-    )
-    
-    AlertDialog(
-        onDismissRequest = onClose,
-        icon = {
-            Text(
-                text = tourSteps[currentStep].emoji,
-                fontSize = 40.sp
-            )
-        },
-        title = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = tourSteps[currentStep].title,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Step ${currentStep + 1} of ${tourSteps.size}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
                 )
             }
         },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = tourSteps[currentStep].description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    tourSteps[currentStep].details.forEach { detail ->
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            Text(
-                                text = "•",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = detail,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            "👋 Welcome to LokAlert!",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Would you like a quick guided tour to learn how to use the app?",
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Help,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Interactive",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            "⚡",
+                            style = MaterialTheme.typography.headlineSmall
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Quick",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            "🎯",
+                            style = MaterialTheme.typography.headlineSmall
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Easy",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 }
             }
         },
         confirmButton = {
-            if (currentStep < tourSteps.size - 1) {
-                Button(onClick = { currentStep++ }) {
-                    Text("Next")
-                }
-            } else {
-                Button(onClick = onClose) {
-                    Text("Finish")
-                }
+            Button(
+                onClick = onStartTour,
+                modifier = Modifier.fillMaxWidth(0.48f)
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Help,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Start Tour")
             }
         },
         dismissButton = {
-            if (currentStep > 0) {
-                TextButton(onClick = { currentStep-- }) {
-                    Text("Back")
-                }
-            } else {
-                TextButton(onClick = onClose) {
-                    Text("Skip")
-                }
+            OutlinedButton(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(0.48f)
+            ) {
+                Text("Not Now")
+            }
+        },
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+@Composable
+fun TourPromptDialog(
+    onStartTour: () -> Unit,
+    onDecline: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDecline,
+        title = { Text("Welcome to LokAlert!") },
+        text = {
+            Column {
+                Text("Would you like a quick guided tour to learn how to use the app?")
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("It only takes a minute and will help you get started.")
+            }
+        },
+        confirmButton = {
+            Button(onClick = onStartTour) {
+                Text("Start Tour")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDecline) {
+                Text("Skip")
             }
         }
     )
 }
 
-data class TourStep(
-    val emoji: String,
+@Composable
+fun HelpIconSpotlightOverlay(
+    helpIconBounds: Rect?,
+    onFinish: () -> Unit
+) {
+    if (helpIconBounds == null) return
+    
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() }
+            ) { onFinish() }
+    ) {
+        // Dark overlay with hole for help icon
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawRect(color = Color.Black.copy(alpha = 0.7f))
+        }
+        
+        // Help text
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Card {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        "Need Help?",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Tap the help icon (?) anytime to restart the guided tour.",
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = onFinish) {
+                        Text("Got It!")
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Enum and data class for guided tour
+enum class BubblePosition {
+    ABOVE, BELOW, CENTER
+}
+
+data class InteractiveTourStep(
     val title: String,
-    val description: String,
-    val details: List<String>
+    val message: String,
+    val spotlightBounds: Rect?,
+    val secondarySpotlightBounds: Rect? = null,
+    val bubblePosition: BubblePosition,
+    val useCircularSpotlight: Boolean = false
 )
 
 @Composable
@@ -1201,66 +1663,58 @@ fun GuidedTourOverlay(
     onBack: () -> Unit,
     onFinish: () -> Unit
 ) {
-    // Define comprehensive tour steps
     val tourSteps = listOf(
-        // Step 0: Welcome & Icons
         InteractiveTourStep(
             title = "Welcome to LokAlert! 👋",
-            message = "Let's take a quick tour! These are your Help and Settings icons - tap Help anytime for guidance!",
+            message = "Thanks for choosing us! Tap the Help icon (?) anytime to restart this tour. The Settings icon (⚙️) lets you customize your experience.",
             spotlightBounds = helpIconBounds,
             secondarySpotlightBounds = settingsIconBounds,
             bubblePosition = BubblePosition.BELOW,
             useCircularSpotlight = true
         ),
-        // Step 1: Navigation Bar
         InteractiveTourStep(
-            title = "Navigation Bar",
-            message = "Use these tabs to switch between Map and Locations screens. Let's explore the Map!",
+            title = "Your Navigation Hub",
+            message = "Switch between Map and Alarms screens using these tabs. Everything you need is just a tap away!",
             spotlightBounds = bottomNavBounds,
             secondarySpotlightBounds = null,
             bubblePosition = BubblePosition.ABOVE,
             useCircularSpotlight = false
         ),
-        // Step 2: Map Tab
         InteractiveTourStep(
-            title = "Map Screen",
-            message = "This is the Map tab where you'll set up your location-based alarms.",
+            title = "Map Screen 🗺️",
+            message = "This is your main workspace for creating location alarms. Pin destinations and set up alerts with ease!",
             spotlightBounds = mapTabBounds,
             secondarySpotlightBounds = null,
             bubblePosition = BubblePosition.ABOVE,
             useCircularSpotlight = false
         ),
-        // Step 3: Search Bar
         InteractiveTourStep(
-            title = "Search for Locations",
-            message = "Use the search bar to find any location, or long-press on the map to drop a pin!",
+            title = "Find Your Destination 🔍",
+            message = "Search for any place or long-press anywhere on the map to drop a pin. Finding locations has never been easier!",
             spotlightBounds = searchBarBounds,
             secondarySpotlightBounds = null,
             bubblePosition = BubblePosition.BELOW,
             useCircularSpotlight = false
         ),
-        // Step 4: Map Area
         InteractiveTourStep(
-            title = "Interactive Map",
-            message = "Long-press to pin a location, or drag the pin to adjust it. The circle shows your alarm radius!",
+            title = "Interactive Map View",
+            message = "Long-press to place a pin, then drag it to fine-tune your location. The blue circle shows your alert radius!",
             spotlightBounds = mapAreaBounds,
             secondarySpotlightBounds = null,
             bubblePosition = BubblePosition.CENTER,
             useCircularSpotlight = false
         ),
-        // Step 5: Locations Tab
         InteractiveTourStep(
-            title = "Locations Screen",
-            message = "Tap Locations to manage saved alarms, view recent searches, and mark favorites!",
+            title = "Manage Your Alarms 🔔",
+            message = "Access all your location alarms here. View, edit, enable, disable, or delete alarms with just a few taps!",
             spotlightBounds = locationsTabBounds,
             secondarySpotlightBounds = null,
             bubblePosition = BubblePosition.ABOVE,
             useCircularSpotlight = false
         ),
-        // Step 6: Completion
         InteractiveTourStep(
-            title = "You're All Set! 🎉",
-            message = "You're ready to create location-based alarms! Never miss your stop again!",
+            title = "Ready to Go! 🎉",
+            message = "You're all set to create your first location alarm. Never miss your destination again with LokAlert!",
             spotlightBounds = null,
             secondarySpotlightBounds = null,
             bubblePosition = BubblePosition.CENTER,
@@ -1274,7 +1728,6 @@ fun GuidedTourOverlay(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(Unit) {
-                // Block all touches except the overlay
                 awaitPointerEventScope {
                     while (true) {
                         awaitPointerEvent()
@@ -1282,22 +1735,16 @@ fun GuidedTourOverlay(
                 }
             }
     ) {
-        // Dark overlay with spotlight cutout
         Canvas(modifier = Modifier.fillMaxSize()) {
-            // Create path with EvenOdd fill for proper spotlight cutouts
             val overlayPath = Path().apply {
-                fillType = PathFillType.EvenOdd // CRITICAL: This makes the cutouts transparent!
-                // Fill entire screen
+                fillType = PathFillType.EvenOdd
                 addRect(Rect(Offset.Zero, size))
             }
             
-            // Cut out primary spotlight if there's a target
             currentTourStep.spotlightBounds?.let { bounds ->
                 if (currentTourStep.useCircularSpotlight) {
-                    // Use circular spotlight for icons - focus on icon only, not button
                     val centerX = bounds.left + (bounds.right - bounds.left) / 2
                     val centerY = bounds.top + (bounds.bottom - bounds.top) / 2
-                    // Smaller radius - just 8dp padding around the icon itself
                     val radius = maxOf(bounds.width, bounds.height) / 2 + 8.dp.toPx()
                     
                     overlayPath.addOval(
@@ -1307,7 +1754,6 @@ fun GuidedTourOverlay(
                         )
                     )
                 } else {
-                    // Use rectangular spotlight for larger elements
                     val padding = 20.dp.toPx()
                     val spotlightRect = RoundRect(
                         left = bounds.left - padding,
@@ -1321,10 +1767,8 @@ fun GuidedTourOverlay(
                 }
             }
             
-            // Cut out secondary spotlight (for Settings icon when showing Help icon)
             currentTourStep.secondarySpotlightBounds?.let { bounds ->
                 if (currentTourStep.useCircularSpotlight) {
-                    // Use circular spotlight for icons
                     val centerX = bounds.left + (bounds.right - bounds.left) / 2
                     val centerY = bounds.top + (bounds.bottom - bounds.top) / 2
                     val radius = maxOf(bounds.width, bounds.height) / 2 + 8.dp.toPx()
@@ -1338,14 +1782,12 @@ fun GuidedTourOverlay(
                 }
             }
             
-            // Draw with reduced opacity for proper cutouts
             drawPath(
                 path = overlayPath,
                 color = Color.Black.copy(alpha = 0.5f)
             )
         }
         
-        // Speech bubble overlay
         SpeechBubble(
             title = currentTourStep.title,
             message = currentTourStep.message,
@@ -1361,19 +1803,6 @@ fun GuidedTourOverlay(
     }
 }
 
-enum class BubblePosition {
-    ABOVE, BELOW, CENTER
-}
-
-data class InteractiveTourStep(
-    val title: String,
-    val message: String,
-    val spotlightBounds: Rect?,
-    val secondarySpotlightBounds: Rect? = null, // For highlighting multiple elements
-    val bubblePosition: BubblePosition,
-    val useCircularSpotlight: Boolean = false // Use circular spotlight for icons
-)
-
 @Composable
 fun BoxScope.SpeechBubble(
     title: String,
@@ -1388,40 +1817,31 @@ fun BoxScope.SpeechBubble(
     onSkip: () -> Unit
 ) {
     val density = LocalDensity.current
-    val configuration = LocalContext.current.resources.configuration
-    val screenWidthDp = configuration.screenWidthDp
     
-    // Optimize width for foldable devices
-    val cardWidth = when {
-        screenWidthDp > 600 -> 320.dp // Tablets and unfolded devices
-        else -> 280.dp // Phones and folded devices
-    }
-    
-    // Calculate bubble position based on spotlight - make it narrower and more square
     val modifier = when (position) {
         BubblePosition.ABOVE -> {
             spotlightBounds?.let {
                 val offsetY = with(density) { (it.top - 220.dp.toPx()).toInt() }
                 Modifier
-                    .width(cardWidth)  // Responsive width for foldables
+                    .width(280.dp)
                     .offset { IntOffset(0, offsetY) }
             } ?: Modifier
-                .width(cardWidth)
+                .width(280.dp)
                 .align(Alignment.TopCenter)
         }
         BubblePosition.BELOW -> {
             spotlightBounds?.let {
                 val offsetY = with(density) { (it.bottom + 20.dp.toPx()).toInt() }
                 Modifier
-                    .width(cardWidth)  // Responsive width for foldables
+                    .width(280.dp)
                     .offset { IntOffset(0, offsetY) }
             } ?: Modifier
-                .width(cardWidth)
+                .width(280.dp)
                 .align(Alignment.BottomCenter)
         }
         BubblePosition.CENTER -> {
             Modifier
-                .width(cardWidth)  // Responsive width for foldables
+                .width(280.dp)
                 .align(Alignment.Center)
         }
     }
@@ -1429,18 +1849,17 @@ fun BoxScope.SpeechBubble(
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(20.dp),
-        colors = androidx.compose.material3.CardDefaults.cardColors(
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer
         )
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),  // Reduced from 24dp to 20dp
+                .padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)  // Reduced from 16dp to 12dp
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Progress indicator
             Text(
                 text = "Step ${step + 1} of $totalSteps",
                 style = MaterialTheme.typography.labelSmall,
@@ -1448,7 +1867,6 @@ fun BoxScope.SpeechBubble(
                 fontWeight = FontWeight.Bold
             )
             
-            // Title
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
@@ -1457,7 +1875,6 @@ fun BoxScope.SpeechBubble(
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
             
-            // Message
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
@@ -1465,13 +1882,11 @@ fun BoxScope.SpeechBubble(
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
             
-            // Navigation buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Back or Skip button
                 if (onBack != null) {
                     TextButton(onClick = onBack) {
                         Text("← Back")
@@ -1482,7 +1897,6 @@ fun BoxScope.SpeechBubble(
                     }
                 }
                 
-                // Next or Finish button
                 if (onFinish != null) {
                     Button(onClick = onFinish) {
                         Text("Finish 🎉")
@@ -1490,171 +1904,6 @@ fun BoxScope.SpeechBubble(
                 } else if (onNext != null) {
                     Button(onClick = onNext) {
                         Text("Next →")
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun TourPromptDialog(
-    onStartTour: () -> Unit,
-    onDecline: () -> Unit
-) {
-    val configuration = LocalContext.current.resources.configuration
-    val screenWidthDp = configuration.screenWidthDp
-    
-    // Optimize width for foldable devices
-    val dialogWidth = when {
-        screenWidthDp > 600 -> 320.dp // Tablets and unfolded devices
-        else -> 280.dp // Phones and folded devices
-    }
-    
-    AlertDialog(
-        onDismissRequest = onDecline,
-        title = {
-            Text(
-                text = "Take a Quick Tour?",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-        },
-        text = {
-            Text(
-                text = "Would you like a quick guided tour to learn how to use LokAlert? It only takes a minute!",
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center
-            )
-        },
-        confirmButton = {
-            Button(
-                onClick = onStartTour,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Yes, Show Me Around! 🎉")
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDecline,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("No Thanks")
-            }
-        },
-        modifier = Modifier.width(dialogWidth)
-    )
-}
-
-@Composable
-fun HelpIconSpotlightOverlay(
-    helpIconBounds: Rect?,
-    onFinish: () -> Unit
-) {
-    val configuration = LocalContext.current.resources.configuration
-    val screenWidthDp = configuration.screenWidthDp
-    
-    // Optimize width for foldable devices
-    val cardWidth = when {
-        screenWidthDp > 600 -> 320.dp // Tablets and unfolded devices
-        else -> 280.dp // Phones and folded devices
-    }
-    
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                // Block all touches except the card
-                awaitPointerEventScope {
-                    while (true) {
-                        awaitPointerEvent()
-                    }
-                }
-            }
-    ) {
-        // Dark overlay with spotlight cutout
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val overlayPath = Path().apply {
-                fillType = PathFillType.EvenOdd
-                addRect(Rect(Offset.Zero, size))
-            }
-            
-            // Cut out circular spotlight for help icon
-            helpIconBounds?.let { bounds ->
-                val centerX = bounds.left + (bounds.right - bounds.left) / 2
-                val centerY = bounds.top + (bounds.bottom - bounds.top) / 2
-                val radius = maxOf(bounds.width, bounds.height) / 2 + 8.dp.toPx()
-                
-                overlayPath.addOval(
-                    Rect(
-                        center = Offset(centerX, centerY),
-                        radius = radius
-                    )
-                )
-            }
-            
-            drawPath(
-                path = overlayPath,
-                color = Color.Black.copy(alpha = 0.6f)
-            )
-        }
-        
-        // Info card below help icon
-        helpIconBounds?.let { bounds ->
-            val density = LocalDensity.current
-            val offsetY = with(density) { (bounds.bottom + 20.dp.toPx()).toInt() }
-            
-            Card(
-                modifier = Modifier
-                    .width(cardWidth)
-                    .offset { IntOffset(0, offsetY) }
-                    .align(Alignment.TopCenter),
-                shape = RoundedCornerShape(20.dp),
-                colors = androidx.compose.material3.CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Icon
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Help,
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    
-                    // Title
-                    Text(
-                        text = "Need Help?",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    
-                    // Message
-                    Text(
-                        text = "Tap the Help icon anytime to start the guided tour and learn how to use LokAlert!",
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    
-                    // Got It button
-                    Button(
-                        onClick = onFinish,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Got It!")
                     }
                 }
             }
