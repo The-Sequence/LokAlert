@@ -137,7 +137,7 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun LokAlertTheme(
     darkMode: Int = 0, // 0=Light, 1=Dark Gray, 2=Pitch Black
-    dynamicColor: Boolean = false, // Disabled by default for consistent theming
+    dynamicColor: Boolean = true, // Disabled by default for consistent theming
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {

@@ -4,12 +4,16 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 val Context.dataStore by preferencesDataStore(name = "user_settings")
 
+// ============================================================================
+// ONBOARDING PREFERENCES
+// ============================================================================
 
 class Onboarding(private val context: Context) {
 
@@ -53,6 +57,10 @@ class Onboarding(private val context: Context) {
     }
 }
 
+// ============================================================================
+// APP PREFERENCES (Settings)
+// ============================================================================
+
 class AppPreferences(private val context: Context) {
 
     companion object {
@@ -60,6 +68,7 @@ class AppPreferences(private val context: Context) {
         val COOLDOWN_MINUTES = intPreferencesKey("cooldown_minutes")
         val VIBRATION_INTENSITY = intPreferencesKey("vibration_intensity") // 0=Low, 1=Medium, 2=Strong
         val DARK_MODE = intPreferencesKey("dark_mode") // 0=Light, 1=Dark Gray, 2=Pitch Black
+        val DEFAULT_ALARM_SOUND = stringPreferencesKey("default_alarm_sound")
     }
 
     val isCooldownEnabled: Flow<Boolean> = context.dataStore.data
@@ -80,6 +89,11 @@ class AppPreferences(private val context: Context) {
     val darkMode: Flow<Int> = context.dataStore.data
         .map { preferences ->
             preferences[DARK_MODE] ?: 0 // Default to Light
+        }
+    
+    val defaultAlarmSound: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[DEFAULT_ALARM_SOUND] ?: ""
         }
 
     suspend fun setCooldownEnabled(enabled: Boolean) {
@@ -103,6 +117,12 @@ class AppPreferences(private val context: Context) {
     suspend fun setDarkMode(mode: Int) {
         context.dataStore.edit { preferences ->
             preferences[DARK_MODE] = mode
+        }
+    }
+    
+    suspend fun setDefaultAlarmSound(uri: String) {
+        context.dataStore.edit { preferences ->
+            preferences[DEFAULT_ALARM_SOUND] = uri
         }
     }
 }

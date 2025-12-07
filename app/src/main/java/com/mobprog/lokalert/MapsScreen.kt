@@ -11,6 +11,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDp
 import androidx.compose.animation.core.animateFloat
@@ -22,30 +23,44 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.gms.location.LocationServices
@@ -53,6 +68,9 @@ import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MapStyleOptions
+import com.google.android.libraries.places.api.Places
+import com.google.android.libraries.places.api.model.AutocompleteSessionToken
+import com.google.android.libraries.places.api.net.FindAutocompletePredictionsRequest
 import com.google.maps.android.compose.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -66,8 +84,11 @@ fun MapsScreen(
     onNewSearch: (String) -> Unit,
     onDone: () -> Unit,
     viewModel: MapsViewModel = viewModel(),
+    darkMode: Int = 0 // 0=Light, 1=Dark Gray, 2=Pitch Black
 ) {
     val context = LocalContext.current
+    val appPreferences = remember { AppPreferences(context) }
+    val defaultAlarmSound by appPreferences.defaultAlarmSound.collectAsState(initial = "")
     val scope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -104,12 +125,11 @@ fun MapsScreen(
     }
 
     // --- Map Style ---
-    val isDarkTheme = isSystemInDarkTheme()
-    val mapProperties = remember(hasLocationPermission) {
+    // Use user's selected dark mode instead of system theme
+    val mapProperties = remember(hasLocationPermission, darkMode) {
         MapProperties(
-            isMyLocationEnabled = hasLocationPermission
-            // Temporarily disabled custom map style
-            // mapStyleOptions = if (isDarkTheme) MapStyleOptions.loadRawResourceStyle(context, R.raw.map_style_dark) else null
+            isMyLocationEnabled = hasLocationPermission,
+            mapStyleOptions = if (darkMode > 0) MapStyleOptions.loadRawResourceStyle(context, R.raw.map_style_dark) else null
         )
     }
     
@@ -129,6 +149,54 @@ fun MapsScreen(
     // --- File Pickers ---
     val ringtonePicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)?.let { viewModel.alarmSoundUri = it.toString() }
+    }
+    
+    // Custom file picker for audio files from storage
+    val audioFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let {
+            // Take persistable URI permission
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    it,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (e: Exception) {
+                // Permission might not be available for all URIs
+            }
+            viewModel.alarmSoundUri = it.toString()
+        }
+    }
+    
+    var showSoundOptions by remember { mutableStateOf(false) }
+    
+    // Quick Alarm state
+    var showQuickAlarm by remember { mutableStateOf(false) }
+    var quickAlarmLocation by remember { mutableStateOf<LatLng?>(null) }
+    var quickAlarmRadius by remember { mutableStateOf(200f) }
+    var quickAlarmLocationName by remember { mutableStateOf("") }
+    var userCurrentLocation by remember { mutableStateOf<LatLng?>(null) }
+    
+    // Get user's current location for context-aware search
+    LaunchedEffect(showQuickAlarm) {
+        if (showQuickAlarm && userCurrentLocation == null) {
+            try {
+                val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+                if (ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.ACCESS_FINE_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED
+                ) {
+                    fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                        location?.let {
+                            userCurrentLocation = LatLng(it.latitude, it.longitude)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // Fallback to map center
+                userCurrentLocation = cameraPositionState.position.target
+            }
+        }
     }
     
     // State for pin replacement overlay
@@ -155,7 +223,7 @@ fun MapsScreen(
                             geocoder.getFromLocation(position.latitude, position.longitude, 1)
                         }
                         persistentPinnedLocationName = results?.firstOrNull()?.let { addr ->
-                            addr.featureName ?: addr.locality ?: addr.subAdminArea ?: "Pinned Location"
+                            getReadableLocationName(addr)
                         } ?: "Pinned Location"
                     } catch (e: Exception) {
                         persistentPinnedLocationName = "Pinned Location"
@@ -197,7 +265,7 @@ fun MapsScreen(
                             geocoder.getFromLocation(viewModel.markerPosition!!.latitude, viewModel.markerPosition!!.longitude, 1)
                         }
                         currentPinnedLocationName = currentResults?.firstOrNull()?.let { addr ->
-                            addr.featureName ?: addr.locality ?: addr.subAdminArea ?: "Unknown Location"
+                            getReadableLocationName(addr)
                         } ?: "Pinned Location"
                         
                         // Store searched location and show overlay
@@ -211,23 +279,24 @@ fun MapsScreen(
                         // No existing pin, directly set new pin and animate
                         viewModel.markerPosition = target
                         
-                        // Auto-populate alarm name with first two words
-                        val words = query.split(" ", ",", "-")
-                        viewModel.alarmName = words.take(2).joinToString(" ").trim()
-                        
                         // Geocode to get proper address
                         val addressResults = withContext(Dispatchers.IO) {
                             @Suppress("DEPRECATION")
                             geocoder.getFromLocation(target.latitude, target.longitude, 1)
                         }
-                        persistentPinnedLocationName = addressResults?.firstOrNull()?.let { addr ->
-                            addr.featureName ?: addr.locality ?: addr.subAdminArea ?: query
+                        val locationName = addressResults?.firstOrNull()?.let { addr ->
+                            getReadableLocationName(addr)
                         } ?: query
+                        
+                        // Auto-populate alarm name with best readable name
+                        viewModel.alarmName = getShortAlarmName(locationName)
+                        
+                        persistentPinnedLocationName = locationName
                         manualNameUpdate = true
                         
                         cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(target, 15f))
                         
-                        Toast.makeText(context, "Location found: ${persistentPinnedLocationName}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Location found: $locationName", Toast.LENGTH_SHORT).show()
                     }
                 } else {
                     Toast.makeText(context, "Location not found. Try a different search term.", Toast.LENGTH_LONG).show()
@@ -279,6 +348,38 @@ fun MapsScreen(
                     icon = { Icon(Icons.Filled.PushPin, "Set Pin") },
                     text = { Text(if (viewModel.markerPosition == null) "Set Pin" else "Edit Pin") }
                 )
+                
+                // Quick Alarm FAB
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        // Get current map center or user location
+                        val location = cameraPositionState.position.target
+                        quickAlarmLocation = location
+                        quickAlarmRadius = 200f
+                        
+                        // Geocode the location
+                        scope.launch {
+                            try {
+                                val geocoder = Geocoder(context)
+                                val results = withContext(Dispatchers.IO) {
+                                    @Suppress("DEPRECATION")
+                                    geocoder.getFromLocation(location.latitude, location.longitude, 1)
+                                }
+                                quickAlarmLocationName = results?.firstOrNull()?.let { addr ->
+                                    getReadableLocationName(addr)
+                                } ?: "Current Location"
+                            } catch (e: Exception) {
+                                quickAlarmLocationName = "Current Location"
+                            }
+                        }
+                        
+                        showQuickAlarm = true
+                    },
+                    icon = { Text("⚡", fontSize = 20.sp) },
+                    text = { Text("Quick Alarm") },
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                )
             }
         }
     ) { padding ->
@@ -313,12 +414,11 @@ fun MapsScreen(
                                 geocoder.getFromLocation(latLng.latitude, latLng.longitude, 1)
                             }
                             val locationName = results?.firstOrNull()?.let { addr ->
-                                addr.featureName ?: addr.locality ?: addr.subAdminArea ?: "Pinned Location"
+                                getReadableLocationName(addr)
                             } ?: "Pinned Location"
                             
-                            // Auto-populate alarm name with first two words
-                            val words = locationName.split(" ", ",", "-")
-                            viewModel.alarmName = words.take(2).joinToString(" ").trim()
+                            // Auto-populate alarm name with readable short name
+                            viewModel.alarmName = getShortAlarmName(locationName)
                             
                             // Update persistent info bar
                             persistentPinnedLocationName = locationName
@@ -363,12 +463,11 @@ fun MapsScreen(
                                         geocoder.getFromLocation(newPosition.latitude, newPosition.longitude, 1)
                                     }
                                     val locationName = results?.firstOrNull()?.let { addr ->
-                                        addr.featureName ?: addr.locality ?: addr.subAdminArea ?: "Pinned Location"
+                                        getReadableLocationName(addr)
                                     } ?: "Pinned Location"
                                     
-                                    // Auto-populate alarm name with first two words
-                                    val words = locationName.split(" ", ",", "-")
-                                    viewModel.alarmName = words.take(2).joinToString(" ").trim()
+                                    // Auto-populate alarm name with readable short name
+                                    viewModel.alarmName = getShortAlarmName(locationName)
                                     
                                     // Update persistent info bar
                                     persistentPinnedLocationName = locationName
@@ -532,16 +631,32 @@ fun MapsScreen(
                             
                             Button(
                                 onClick = {
-                                    // Replace pin with searched location FIRST
+                                    // Replace pin with searched location
                                     viewModel.markerPosition = searchedLocation
                                     
-                                    // Update persistent info bar immediately
-                                    persistentPinnedLocationName = searchedLocationName
-                                    manualNameUpdate = true // Prevent LaunchedEffect from overwriting
-                                    
-                                    // Auto-populate alarm name with first two words
-                                    val words = searchedLocationName.split(" ", ",", "-")
-                                    viewModel.alarmName = words.take(2).joinToString(" ").trim()
+                                    // Geocode to get better location name
+                                    scope.launch {
+                                        try {
+                                            val geocoder = Geocoder(context)
+                                            val results = withContext(Dispatchers.IO) {
+                                                @Suppress("DEPRECATION")
+                                                geocoder.getFromLocation(searchedLocation!!.latitude, searchedLocation!!.longitude, 1)
+                                            }
+                                            val locationName = results?.firstOrNull()?.let { addr ->
+                                                getReadableLocationName(addr)
+                                            } ?: searchedLocationName
+                                            
+                                            // Update persistent info bar
+                                            persistentPinnedLocationName = locationName
+                                            manualNameUpdate = true
+                                            
+                                            // Auto-populate alarm name with readable short name
+                                            viewModel.alarmName = getShortAlarmName(locationName)
+                                        } catch (e: Exception) {
+                                            persistentPinnedLocationName = searchedLocationName
+                                            viewModel.alarmName = getShortAlarmName(searchedLocationName)
+                                        }
+                                    }
                                     
                                     // Close overlay and clear search state
                                     showPinReplaceOverlay = false
@@ -618,11 +733,7 @@ fun MapsScreen(
                 EditLocationForm(
                     viewModel = viewModel,
                     onPickRingtone = {
-                        val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
-                            putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
-                            putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(viewModel.alarmSoundUri))
-                        }
-                        ringtonePicker.launch(intent)
+                        showSoundOptions = true
                     },
                     onCancel = {
                         viewModel.resetForm()
@@ -665,9 +776,650 @@ fun MapsScreen(
             }
         }
     }
+    
+    // Sound selection options dialog
+    if (showSoundOptions) {
+        AlertDialog(
+            onDismissRequest = { showSoundOptions = false },
+            title = { Text("Choose Alarm Sound") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Select a sound for this alarm",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // System Ringtones option
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Select Alarm Sound")
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                                    if (viewModel.alarmSoundUri.isNotEmpty()) {
+                                        try {
+                                            putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(viewModel.alarmSoundUri))
+                                        } catch (e: Exception) { }
+                                    }
+                                }
+                                ringtonePicker.launch(intent)
+                                showSoundOptions = false
+                            },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.MusicNote,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    "System Ringtones",
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Text(
+                                    "Choose from built-in alarm sounds",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                    }
+                    
+                    // Custom audio file option
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                audioFilePicker.launch("audio/*")
+                                showSoundOptions = false
+                            },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.AudioFile,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    "Custom Audio File",
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                Text(
+                                    "Browse your device for MP3, WAV, etc.",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSoundOptions = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+    
+    // Quick Alarm Dialog
+    if (showQuickAlarm && quickAlarmLocation != null) {
+        QuickAlarmDialog(
+            quickAlarmLocation = quickAlarmLocation!!,
+            quickAlarmLocationName = quickAlarmLocationName,
+            quickAlarmRadius = quickAlarmRadius,
+            onRadiusChange = { quickAlarmRadius = it },
+            userCurrentLocation = userCurrentLocation,
+            mapProperties = mapProperties,
+            defaultAlarmSound = defaultAlarmSound,
+            onDismiss = { showQuickAlarm = false },
+            onConfirm = { location, name, radius ->
+                // Create quick alarm with today only
+                val currentDay = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+                
+                // Use default alarm sound from settings, or system default if not set
+                val soundUri = if (defaultAlarmSound.isNotEmpty()) {
+                    defaultAlarmSound
+                } else {
+                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString()
+                }
+                
+                val alarm = LocationAlarm(
+                    name = getShortAlarmName(name),
+                    latitude = location.latitude,
+                    longitude = location.longitude,
+                    radius = radius,
+                    soundUri = soundUri,
+                    isGradualVolume = false,
+                    activeDays = setOf(currentDay),
+                    isEnabled = true,
+                    isFavorite = false
+                )
+                
+                // Save the alarm using ViewModel's DAO
+                scope.launch {
+                    viewModel.dao.insertAlarm(alarm)
+                    
+                    withContext(Dispatchers.Main) {
+                        // Show success message
+                        Toast.makeText(
+                            context,
+                            "⚡ Quick alarm set for ${getShortAlarmName(name)}!",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        
+                        // Close dialog and navigate
+                        showQuickAlarm = false
+                        kotlinx.coroutines.delay(300)
+                        onDone()
+                    }
+                }
+            },
+            onLocationChange = { newLocation, newName ->
+                quickAlarmLocation = newLocation
+                quickAlarmLocationName = newName
+            }
+        )
+    }
 }
 
 // --- EXTRACTED COMPOSABLES AND HELPERS ---
+
+@Composable
+fun QuickAlarmDialog(
+    quickAlarmLocation: LatLng,
+    quickAlarmLocationName: String,
+    quickAlarmRadius: Float,
+    onRadiusChange: (Float) -> Unit,
+    userCurrentLocation: LatLng?,
+    mapProperties: MapProperties,
+    defaultAlarmSound: String,
+    onDismiss: () -> Unit,
+    onConfirm: (LatLng, String, Float) -> Unit,
+    onLocationChange: (LatLng, String) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    
+    // Get sound name for display
+    val soundName = remember(defaultAlarmSound) {
+        if (defaultAlarmSound.isEmpty()) {
+            "default alarm sound"
+        } else {
+            try {
+                val ringtone = RingtoneManager.getRingtone(context, Uri.parse(defaultAlarmSound))
+                ringtone.getTitle(context)
+            } catch (e: Exception) {
+                "default alarm sound"
+            }
+        }
+    }
+    
+    var currentLocation by remember { mutableStateOf(quickAlarmLocation) }
+    var currentLocationName by remember { mutableStateOf(quickAlarmLocationName) }
+    
+    // Search function using Geocoder (same as main map for consistency)
+    fun performQuickAlarmSearch(query: String) {
+        scope.launch {
+            try {
+                val geocoder = Geocoder(context)
+                val results = withContext(Dispatchers.IO) {
+                    @Suppress("DEPRECATION")
+                    geocoder.getFromLocationName(query, 1)
+                }
+
+                if (!results.isNullOrEmpty()) {
+                    val location = results[0]
+                    val target = LatLng(location.latitude, location.longitude)
+                    
+                    // Use the selected suggestion text directly as the name
+                    // to avoid double-geocoding which causes inaccuracy
+                    currentLocation = target
+                    currentLocationName = query
+                    onLocationChange(currentLocation, currentLocationName)
+                    
+                    Toast.makeText(context, "Location set: $query", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Location not found. Try a different search term.", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(context, "Search error: ${e.message ?: "Unknown error"}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    
+    // Detect screen size for responsive layout
+    val configuration = LocalConfiguration.current
+    val screenWidth = configuration.screenWidthDp.dp
+    val isWideScreen = screenWidth > 600.dp
+    
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(if (isWideScreen) 0.65f else 0.92f)
+                .fillMaxHeight(if (isWideScreen) 0.8f else 0.75f),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    // Header - ample padding
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                top = if (isWideScreen) 24.dp else 20.dp,
+                                bottom = if (isWideScreen) 12.dp else 10.dp
+                            ),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            "⚡ Quick Alarm",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Set up in seconds!",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    
+                    // Content with map, slider, info - scrollable with better spacing
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = if (isWideScreen) 24.dp else 20.dp),
+                        verticalArrangement = Arrangement.spacedBy(if (isWideScreen) 20.dp else 14.dp)
+                    ) {
+                        // Spacer for search bar that overlays
+                        Spacer(modifier = Modifier.height(if (isWideScreen) 64.dp else 56.dp))
+                        
+                        // Mini map preview
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(if (isWideScreen) 240.dp else 200.dp),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            val quickMapCameraState = rememberCameraPositionState {
+                                position = CameraPosition.fromLatLngZoom(currentLocation, 15f)
+                            }
+                            
+                            // Animate camera when location changes
+                            LaunchedEffect(currentLocation) {
+                                quickMapCameraState.animate(
+                                    CameraUpdateFactory.newLatLngZoom(currentLocation, 15f),
+                                    durationMs = 500
+                                )
+                            }
+                            
+                            GoogleMap(
+                                modifier = Modifier.fillMaxSize(),
+                                cameraPositionState = quickMapCameraState,
+                                properties = mapProperties,
+                                uiSettings = MapUiSettings(
+                                    zoomControlsEnabled = false,
+                                    myLocationButtonEnabled = false,
+                                    scrollGesturesEnabled = false,
+                                    zoomGesturesEnabled = false,
+                                    tiltGesturesEnabled = false,
+                                    rotationGesturesEnabled = false
+                                )
+                            ) {
+                                Marker(
+                                    state = MarkerState(position = currentLocation),
+                                    title = "Alarm Location"
+                                )
+                                Circle(
+                                    center = currentLocation,
+                                    radius = quickAlarmRadius.toDouble(),
+                                    strokeColor = MaterialTheme.colorScheme.tertiary,
+                                    fillColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f),
+                                    strokeWidth = 3f
+                                )
+                            }
+                        }
+                        
+                        // Radius slider
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "Alert Radius",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                                    )
+                                ) {
+                                    Text(
+                                        "${quickAlarmRadius.toInt()}m",
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    )
+                                }
+                            }
+                            
+                            Slider(
+                                value = quickAlarmRadius,
+                                onValueChange = onRadiusChange,
+                                valueRange = 100f..500f,
+                                steps = 7,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "100m",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    "500m",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        
+                        // Info card
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("ℹ️", style = MaterialTheme.typography.titleMedium)
+                                Column {
+                                    Text(
+                                        "This alarm will run today only",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        "Uses $soundName",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Action buttons at bottom
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                horizontal = if (isWideScreen) 24.dp else 20.dp,
+                                vertical = if (isWideScreen) 20.dp else 16.dp
+                            ),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        TextButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Cancel")
+                        }
+                        
+                        Button(
+                            onClick = {
+                                onConfirm(currentLocation, currentLocationName, quickAlarmRadius)
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Set Alarm", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                
+                // SearchSection overlay - positioned on top of content
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = if (isWideScreen) 24.dp else 20.dp)
+                        .padding(top = if (isWideScreen) 84.dp else 76.dp) // Position below header
+                ) {
+                    QuickSearchSection(
+                        onSearch = { query -> performQuickAlarmSearch(query) },
+                        onSuggestionClick = { suggestion -> performQuickAlarmSearch(suggestion) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+// --- EXTRACTED COMPOSABLES AND HELPERS ---
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun QuickSearchSection(
+    onSearch: ((String) -> Unit)? = null,
+    onSuggestionClick: ((String) -> Unit)? = null
+) {
+    var searchText by remember { mutableStateOf("") }
+    var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
+    var expanded by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    var userHasSelectedSuggestion by remember { mutableStateOf(false) }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    // Places Client Setup
+    val placesClient = remember {
+        try {
+            if (!Places.isInitialized()) {
+                val packageInfo = context.packageManager.getApplicationInfo(
+                    context.packageName,
+                    android.content.pm.PackageManager.GET_META_DATA
+                )
+                val apiKey = packageInfo.metaData?.getString("com.google.android.geo.API_KEY")
+                if (apiKey != null) {
+                    Places.initialize(context, apiKey)
+                }
+            }
+            if (Places.isInitialized()) {
+                Places.createClient(context)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+    val token = remember { AutocompleteSessionToken.newInstance() }
+
+    // Autocomplete Logic - limit to 3 suggestions
+    LaunchedEffect(searchText) {
+        if (userHasSelectedSuggestion) {
+            userHasSelectedSuggestion = false
+            return@LaunchedEffect
+        }
+        if (searchText.isNotEmpty() && placesClient != null) {
+            try {
+                val request = FindAutocompletePredictionsRequest.builder()
+                    .setSessionToken(token)
+                    .setQuery(searchText)
+                    .build()
+
+                placesClient.findAutocompletePredictions(request)
+                    .addOnSuccessListener { response ->
+                        suggestions = response.autocompletePredictions
+                            .take(3) // Limit to 3 suggestions
+                            .map { it.getFullText(null).toString() }
+                        expanded = suggestions.isNotEmpty()
+                    }
+                    .addOnFailureListener {
+                        suggestions = emptyList()
+                        expanded = false
+                    }
+            } catch (e: Exception) {
+                suggestions = emptyList()
+                expanded = false
+            }
+        } else {
+            suggestions = emptyList()
+            expanded = false
+        }
+    }
+
+    // Compact UI for overlay
+    Surface(
+        shadowElevation = 8.dp,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column {
+            OutlinedTextField(
+                value = searchText,
+                onValueChange = { searchText = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { 
+                    Text(
+                        if (placesClient != null) "Search location..." else "Search unavailable",
+                        fontSize = 14.sp
+                    ) 
+                },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                trailingIcon = {
+                    if (searchText.isNotEmpty()) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Clear",
+                            modifier = Modifier.clickable {
+                                searchText = ""
+                                expanded = false
+                                keyboardController?.hide()
+                            }
+                        )
+                    }
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent
+                ),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(
+                    onSearch = {
+                        if (searchText.isNotEmpty()) {
+                            onSearch?.invoke(searchText)
+                            expanded = false
+                            keyboardController?.hide()
+                        }
+                    }
+                )
+            )
+
+            AnimatedVisibility(visible = expanded) {
+                Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                    Divider(modifier = Modifier.padding(horizontal = 16.dp))
+                    suggestions.forEach { suggestion ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    userHasSelectedSuggestion = true
+                                    searchText = suggestion
+                                    expanded = false
+                                    onSuggestionClick?.invoke(suggestion)
+                                    keyboardController?.hide()
+                                }
+                                .padding(vertical = 10.dp, horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LocationOn,
+                                contentDescription = null,
+                                tint = Color.Gray,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = suggestion,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun EditLocationForm(
@@ -750,7 +1502,7 @@ fun EditLocationForm(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    "Edit Location",
+                    "Set Alarm Location",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
@@ -760,28 +1512,24 @@ fun EditLocationForm(
                     onValueChange = { viewModel.alarmName = it },
                     label = { Text("Alarm Name") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    singleLine = true,
+                    trailingIcon = if (viewModel.alarmName.isNotEmpty()) {
+                        {
+                            IconButton(onClick = { viewModel.alarmName = "" }) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "Clear",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    } else null
                 )
-                
-                // Clear button as clickable text link
-                if (viewModel.alarmName.isNotEmpty()) {
-                    TextButton(
-                        onClick = { viewModel.alarmName = "" },
-                        modifier = Modifier.padding(start = 0.dp),
-                        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            "Clear",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
 
                 Column {
                     Text("Active Days", fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(8.dp))
-                    MapsDaySelector(viewModel.selectedDays) { viewModel.selectedDays = it }
+                    EnhancedDaySelector(viewModel.selectedDays) { viewModel.selectedDays = it }
                 }
 
                 MapsPickerRow(
@@ -902,4 +1650,89 @@ fun getMapRingtoneTitle(context: Context, ringtoneUriString: String): String {
     } catch (exception: Exception) {
         "Unknown Sound"
     }
+}
+
+/**
+ * Extract a readable location name from address components.
+ * Priority: featureName > thoroughfare (street) > locality > subAdminArea > adminArea
+ */
+fun getReadableLocationName(address: android.location.Address): String {
+    // Try to build a meaningful name from address components
+    val parts = mutableListOf<String>()
+    
+    // Add feature name (e.g., "Starbucks", "Central Park")
+    address.featureName?.let { if (it.isNotBlank() && !it.matches(Regex("\\d+"))) parts.add(it) }
+    
+    // Add thoroughfare (street name) if different from feature name
+    address.thoroughfare?.let { 
+        if (it.isNotBlank() && it != address.featureName && !it.matches(Regex("\\d+"))) {
+            parts.add(it)
+        }
+    }
+    
+    // Add locality (city/town) if not already included
+    address.locality?.let { 
+        if (it.isNotBlank() && !parts.contains(it)) {
+            parts.add(it)
+        }
+    }
+    
+    // If we don't have enough info, add subAdminArea
+    if (parts.size < 2) {
+        address.subAdminArea?.let { 
+            if (it.isNotBlank() && !parts.contains(it)) {
+                parts.add(it)
+            }
+        }
+    }
+    
+    // If still no good info, add adminArea (state/province)
+    if (parts.isEmpty()) {
+        address.adminArea?.let { if (it.isNotBlank()) parts.add(it) }
+    }
+    
+    return if (parts.isNotEmpty()) {
+        parts.take(2).joinToString(", ")
+    } else {
+        "Pinned Location"
+    }
+}
+
+/**
+ * Generate a short, user-friendly alarm name from a location name.
+ * Takes the most relevant 2-3 words.
+ */
+fun getShortAlarmName(locationName: String): String {
+    // Remove common words and split
+    val commonWords = setOf("the", "a", "an", "at", "in", "on", "near", "by")
+    val words = locationName
+        .split(" ", ",", "-", "/")
+        .map { it.trim() }
+        .filter { it.isNotBlank() && it.lowercase() !in commonWords }
+    
+    return when {
+        words.isEmpty() -> "Location Alarm"
+        words.size == 1 -> words[0]
+        else -> words.take(2).joinToString(" ")
+    }
+}
+
+/**
+ * Calculate distance in kilometers between two LatLng points using Haversine formula.
+ */
+fun calculateDistance(point1: LatLng, point2: LatLng): Double {
+    val earthRadius = 6371.0 // Earth radius in kilometers
+    
+    val lat1Rad = Math.toRadians(point1.latitude)
+    val lat2Rad = Math.toRadians(point2.latitude)
+    val deltaLat = Math.toRadians(point2.latitude - point1.latitude)
+    val deltaLon = Math.toRadians(point2.longitude - point1.longitude)
+    
+    val a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+            Math.cos(lat1Rad) * Math.cos(lat2Rad) *
+            Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2)
+    
+    val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    
+    return earthRadius * c
 }

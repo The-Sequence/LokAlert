@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.stateIn
 
 class MapsViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val dao = LokAlertDatabase.getDatabase(application).alarmDao()
+    internal val dao = LokAlertDatabase.getDatabase(application).alarmDao()
 
     val savedLocations = dao.getAllAlarms()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
