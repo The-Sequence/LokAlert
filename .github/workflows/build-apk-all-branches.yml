@@ -8,10 +8,16 @@ on:
     branches:
       - '**'
 
+# Set minimal permissions at workflow level
+permissions:
+  contents: write  # Needed to create releases
+  
 jobs:
   setup:
     name: Identify Branches to Build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # Only needs to read the repository
     outputs:
       branches: ${{ steps.get-branches.outputs.branches }}
     steps:
@@ -38,6 +44,8 @@ jobs:
   build:
     name: Build APK for ${{ matrix.branch }}
     needs: setup
+    permissions:
+      contents: write  # Needed to create releases and upload assets
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
