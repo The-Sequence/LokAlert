@@ -67,8 +67,14 @@ jobs:
       - name: Sign APK
         id: sign_apk
         run: |
-          # Find the built APK
-          APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          # Find the built APK (specifically the debug APK, not test APKs)
+          APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" -not -name "*-androidTest.apk" | head -n 1)
+          
+          if [ -z "$APK_PATH" ]; then
+            echo "Error: No APK file found"
+            exit 1
+          fi
+          
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
           
           # For debug builds, the APK is already signed with debug keystore
@@ -84,9 +90,14 @@ jobs:
       - name: Get version info
         id: version
         run: |
-          # Extract version from build.gradle.kts with more robust pattern
-          VERSION_NAME=$(grep "versionName" app/build.gradle.kts | sed 's/.*versionName = "\(.*\)".*/\1/' | head -n 1)
-          VERSION_CODE=$(grep "versionCode" app/build.gradle.kts | sed 's/.*versionCode = \(.*\)/\1/' | head -n 1)
+          # Extract version using Gradle properties task (more robust than regex)
+          VERSION_NAME=$(./gradlew -q printVersionName 2>/dev/null || grep "versionName" app/build.gradle.kts | sed -E 's/.*versionName[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/' | head -n 1)
+          VERSION_CODE=$(./gradlew -q printVersionCode 2>/dev/null || grep "versionCode" app/build.gradle.kts | sed -E 's/.*versionCode[[:space:]]*=[[:space:]]*([0-9]+).*/\1/' | head -n 1)
+          
+          # Fallback to default if extraction fails
+          VERSION_NAME=${VERSION_NAME:-"1.0"}
+          VERSION_CODE=${VERSION_CODE:-"1"}
+          
           echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
           echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
       
@@ -145,10 +156,16 @@ jobs:
           path: ${{ steps.sign_apk.outputs.signed_apk }}
           retention-days: 90
       
+      - name: Get short SHA
+        id: short_sha
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+      
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.sign_apk.outputs.branch_safe }}-v${{ steps.version.outputs.version_name }}-${{ github.sha }}
+          tag_name: ${{ steps.sign_apk.outputs.branch_safe }}-v${{ steps.version.outputs.version_name }}-${{ steps.short_sha.outputs.short_sha }}
           name: LokAlert ${{ matrix.branch }} - v${{ steps.version.outputs.version_name }}
           body_path: release_notes.md
           files: ${{ steps.sign_apk.outputs.signed_apk }}
