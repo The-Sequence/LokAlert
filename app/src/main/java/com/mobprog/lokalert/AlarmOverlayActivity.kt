@@ -96,6 +96,7 @@ class AlarmOverlayActivity : ComponentActivity() {
         val soundUri = intent.getStringExtra("SOUND_URI") ?: ""
         val latitude = intent.getDoubleExtra("LATITUDE", 0.0)
         val longitude = intent.getDoubleExtra("LONGITUDE", 0.0)
+        val isGradualVolume = intent.getBooleanExtra("IS_GRADUAL_VOLUME", false)
         
         // Get vibration intensity from settings
         CoroutineScope(Dispatchers.Main).launch {
@@ -105,8 +106,8 @@ class AlarmOverlayActivity : ComponentActivity() {
             // Start vibration
             startVibration(vibrationIntensity)
             
-            // Start playing alarm sound at max volume
-            playAlarmSound(soundUri)
+            // Start playing alarm sound (with gradual volume if enabled)
+            playAlarmSound(soundUri, isGradualVolume)
         }
         
         setContent {
@@ -197,7 +198,9 @@ class AlarmOverlayActivity : ComponentActivity() {
         vibrator?.cancel()
     }
     
-    private fun playAlarmSound(soundUriString: String) {
+    private var volumeRampJob: kotlinx.coroutines.Job? = null
+    
+    private fun playAlarmSound(soundUriString: String, isGradualVolume: Boolean = false) {
         try {
             val uri = if (soundUriString.isNotEmpty()) {
                 Uri.parse(soundUriString)
@@ -218,9 +221,35 @@ class AlarmOverlayActivity : ComponentActivity() {
                 )
                 
                 isLooping = true
-                setVolume(1.0f, 1.0f) // Max volume
+                
+                // Start at low volume if gradual, otherwise max
+                if (isGradualVolume) {
+                    setVolume(0.1f, 0.1f) // Start at 10% volume
+                } else {
+                    setVolume(1.0f, 1.0f) // Max volume
+                }
+                
                 prepare()
                 start()
+            }
+            
+            // If gradual volume is enabled, ramp up the volume over time
+            if (isGradualVolume) {
+                volumeRampJob = CoroutineScope(Dispatchers.Main).launch {
+                    val startVolume = 0.1f
+                    val endVolume = 1.0f
+                    val rampDuration = 30000L // 30 seconds to reach max volume
+                    val steps = 60 // Number of volume steps
+                    val stepDelay = rampDuration / steps
+                    val volumeIncrement = (endVolume - startVolume) / steps
+                    
+                    var currentVolume = startVolume
+                    for (i in 0 until steps) {
+                        delay(stepDelay)
+                        currentVolume = (startVolume + (volumeIncrement * (i + 1))).coerceIn(startVolume, endVolume)
+                        mediaPlayer?.setVolume(currentVolume, currentVolume)
+                    }
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -229,6 +258,10 @@ class AlarmOverlayActivity : ComponentActivity() {
     
     private fun stopAlarm() {
         stopVibration()
+        
+        // Cancel volume ramp job if running
+        volumeRampJob?.cancel()
+        volumeRampJob = null
         
         mediaPlayer?.let {
             try {
@@ -259,6 +292,29 @@ fun AlarmOverlayScreen(
     onDismiss: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val appPreferences = remember { AppPreferences(context) }
+    
+    // Get customization preferences
+    val dismissStyle by appPreferences.overlayDismissStyle.collectAsState(initial = 0)
+    val backgroundStyle by appPreferences.overlayBackgroundStyle.collectAsState(initial = 0)
+    val showDistance by appPreferences.overlayShowDistance.collectAsState(initial = true)
+    val showEmoji by appPreferences.overlayShowEmoji.collectAsState(initial = true)
+    val primaryColorHex by appPreferences.overlayPrimaryColor.collectAsState(initial = "FF6B6B")
+    
+    // Parse color from hex
+    val primaryColor = remember(primaryColorHex) {
+        try {
+            Color(android.graphics.Color.parseColor("#$primaryColorHex"))
+        } catch (e: Exception) {
+            Color(0xFFFF6B6B)
+        }
+    }
+    val secondaryColor = remember(primaryColor) {
+        primaryColor.copy(
+            red = (primaryColor.red + 0.1f).coerceIn(0f, 1f),
+            green = (primaryColor.green + 0.05f).coerceIn(0f, 1f)
+        )
+    }
     
     // Track current distance
     var currentDistance by remember { mutableStateOf<Float?>(null) }
@@ -307,16 +363,52 @@ fun AlarmOverlayScreen(
         label = "alpha"
     )
     
+    // Background based on style
+    val backgroundModifier = when (backgroundStyle) {
+        0 -> Modifier.background(
+            Brush.verticalGradient(
+                colors = listOf(
+                    primaryColor.copy(alpha = alpha),
+                    secondaryColor.copy(alpha = alpha)
+                )
+            )
+        )
+        1 -> Modifier.background(primaryColor.copy(alpha = 0.9f))
+        2 -> Modifier.background(Color(0xFF1A1A1A))
+        else -> Modifier.background(
+            Brush.verticalGradient(
+                colors = listOf(
+                    primaryColor.copy(alpha = alpha),
+                    secondaryColor.copy(alpha = alpha)
+                )
+            )
+        )
+    }
+    
+    // Swipe up to dismiss modifier
+    var swipeOffset by remember { mutableFloatStateOf(0f) }
+    val swipeThreshold = 300f
+    
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFFFF6B6B).copy(alpha = alpha),
-                        Color(0xFFFF8E53).copy(alpha = alpha)
+            .then(backgroundModifier)
+            .then(
+                if (dismissStyle == 1) {
+                    Modifier.draggable(
+                        orientation = Orientation.Vertical,
+                        state = rememberDraggableState { delta ->
+                            swipeOffset = (swipeOffset + delta).coerceAtMost(0f)
+                        },
+                        onDragStopped = {
+                            if (swipeOffset < -swipeThreshold) {
+                                onDismiss()
+                            } else {
+                                swipeOffset = 0f
+                            }
+                        }
                     )
-                )
+                } else Modifier
             ),
         contentAlignment = Alignment.Center
     ) {
@@ -327,22 +419,24 @@ fun AlarmOverlayScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Animated alarm icon
-            val scale by infiniteTransition.animateFloat(
-                initialValue = 1f,
-                targetValue = 1.2f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(500, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "scale"
-            )
-            
-            Text(
-                text = "🚨",
-                fontSize = (80 * scale).sp,
-                modifier = Modifier.padding(bottom = 24.dp)
-            )
+            // Animated alarm icon (conditionally shown)
+            if (showEmoji) {
+                val scale by infiniteTransition.animateFloat(
+                    initialValue = 1f,
+                    targetValue = 1.2f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(500, easing = FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "scale"
+                )
+                
+                Text(
+                    text = "🚨",
+                    fontSize = (80 * scale).sp,
+                    modifier = Modifier.padding(bottom = 24.dp)
+                )
+            }
             
             // Location name
             Text(
@@ -363,89 +457,151 @@ fun AlarmOverlayScreen(
                 modifier = Modifier.padding(bottom = 24.dp)
             )
             
-            // Distance info
-            currentDistance?.let { distance ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color.White.copy(alpha = 0.2f)
-                    ),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(
+            // Distance info (conditionally shown)
+            if (showDistance) {
+                currentDistance?.let { distance ->
+                    Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .padding(horizontal = 16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color.White.copy(alpha = 0.2f)
+                        ),
+                        shape = RoundedCornerShape(16.dp)
                     ) {
-                        Text(
-                            text = "You are",
-                            fontSize = 16.sp,
-                            color = Color.White.copy(alpha = 0.9f),
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "${distance.roundToInt()}m",
-                            fontSize = 48.sp,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "away from your destination!",
-                            fontSize = 16.sp,
-                            color = Color.White.copy(alpha = 0.9f),
-                            fontWeight = FontWeight.Medium
-                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "You are",
+                                fontSize = 16.sp,
+                                color = Color.White.copy(alpha = 0.9f),
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "${distance.roundToInt()}m",
+                                fontSize = 48.sp,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "away from your destination!",
+                                fontSize = 16.sp,
+                                color = Color.White.copy(alpha = 0.9f),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
             
             Spacer(modifier = Modifier.height(48.dp))
             
-            // Slide to dismiss
-            SliderToDismiss(onDismiss = onDismiss)
+            // Dismiss control based on style
+            when (dismissStyle) {
+                0 -> SliderToDismiss(onDismiss = onDismiss, accentColor = primaryColor)
+                1 -> SwipeUpToDismiss()
+                2 -> ButtonToDismiss(onDismiss = onDismiss, accentColor = primaryColor)
+                else -> SliderToDismiss(onDismiss = onDismiss, accentColor = primaryColor)
+            }
         }
     }
 }
 
 @Composable
-fun SliderToDismiss(onDismiss: () -> Unit) {
+fun SwipeUpToDismiss() {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "↑",
+            fontSize = 32.sp,
+            color = Color.White
+        )
+        Text(
+            text = "Swipe up to dismiss",
+            fontSize = 16.sp,
+            color = Color.White.copy(alpha = 0.8f),
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+fun ButtonToDismiss(onDismiss: () -> Unit, accentColor: Color = Color(0xFFFF6B6B)) {
+    Button(
+        onClick = onDismiss,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 32.dp)
+            .height(56.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color.White,
+            contentColor = accentColor
+        ),
+        shape = RoundedCornerShape(28.dp)
+    ) {
+        Text(
+            text = "Dismiss Alarm",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+fun SliderToDismiss(onDismiss: () -> Unit, accentColor: Color = Color(0xFFFF6B6B)) {
     val density = LocalDensity.current
-    val maxSwipe = with(density) { 246.dp.toPx() } // 300dp width - 54dp handle
-    var offsetX by remember { mutableStateOf(0f) }
+    val trackWidth = 300.dp
+    val handleSize = 62.dp
+    val maxSwipe = with(density) { (trackWidth - handleSize).toPx() }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    val progress = (offsetX / maxSwipe).coerceIn(0f, 1f)
     
     // Check if fully swiped
     LaunchedEffect(offsetX) {
-        if (offsetX >= maxSwipe * 0.8f) {
+        if (offsetX >= maxSwipe * 0.85f) {
             onDismiss()
         }
     }
     
     Box(
         modifier = Modifier
-            .width(300.dp)
+            .width(trackWidth)
             .height(70.dp)
             .background(
                 color = Color.White.copy(alpha = 0.3f),
                 shape = RoundedCornerShape(35.dp)
-            )
+            ),
+        contentAlignment = Alignment.CenterStart
     ) {
-        // Track background
+        // Progress fill
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(with(density) { (handleSize.toPx() + offsetX).toDp() })
+                .background(
+                    color = Color.White.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(35.dp)
+                )
+        )
+        
+        // Track label
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(8.dp),
+                .padding(start = handleSize + 8.dp, end = 16.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = "Slide to Dismiss",
-                color = Color.White,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.alpha(1f - (offsetX / maxSwipe).coerceIn(0f, 1f))
+                color = Color.White.copy(alpha = 1f - progress),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold
             )
         }
         
@@ -453,11 +609,11 @@ fun SliderToDismiss(onDismiss: () -> Unit) {
         Box(
             modifier = Modifier
                 .offset { IntOffset(offsetX.roundToInt(), 0) }
-                .size(54.dp)
                 .padding(4.dp)
+                .size(handleSize - 8.dp)
                 .background(
                     color = Color.White,
-                    shape = RoundedCornerShape(27.dp)
+                    shape = RoundedCornerShape((handleSize - 8.dp) / 2)
                 )
                 .draggable(
                     orientation = Orientation.Horizontal,
@@ -466,7 +622,7 @@ fun SliderToDismiss(onDismiss: () -> Unit) {
                     },
                     onDragStopped = {
                         // Snap back if not swiped far enough
-                        if (offsetX < maxSwipe * 0.8f) {
+                        if (offsetX < maxSwipe * 0.85f) {
                             offsetX = 0f
                         }
                     }
@@ -476,8 +632,8 @@ fun SliderToDismiss(onDismiss: () -> Unit) {
             Icon(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = "Swipe",
-                tint = Color(0xFFFF6B6B),
-                modifier = Modifier.size(32.dp)
+                tint = accentColor,
+                modifier = Modifier.size(28.dp)
             )
         }
     }

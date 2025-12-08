@@ -93,10 +93,14 @@ fun MapsScreen(
     val hapticFeedback = LocalHapticFeedback.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    // Set default sound URI once on launch if empty
-    LaunchedEffect(Unit) {
-        if (viewModel.alarmSoundUri.isEmpty()) {
-            viewModel.alarmSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString()
+    // Set default sound URI once on launch if empty, or use the default from preferences
+    LaunchedEffect(defaultAlarmSound) {
+        if (viewModel.alarmSoundUri.isEmpty() || defaultAlarmSound.isNotEmpty()) {
+            viewModel.alarmSoundUri = if (defaultAlarmSound.isNotEmpty()) {
+                defaultAlarmSound
+            } else {
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString()
+            }
         }
     }
 
@@ -1542,7 +1546,14 @@ fun EditLocationForm(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Gradual Volume", modifier = Modifier.weight(1f))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Gentle wake-up", fontWeight = FontWeight.Medium)
+                        Text(
+                            "Starts quiet, gets louder",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Switch(
                         checked = viewModel.isGradualVolume,
                         onCheckedChange = { viewModel.isGradualVolume = it }

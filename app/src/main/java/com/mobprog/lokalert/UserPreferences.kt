@@ -69,6 +69,14 @@ class AppPreferences(private val context: Context) {
         val VIBRATION_INTENSITY = intPreferencesKey("vibration_intensity") // 0=Low, 1=Medium, 2=Strong
         val DARK_MODE = intPreferencesKey("dark_mode") // 0=Light, 1=Dark Gray, 2=Pitch Black
         val DEFAULT_ALARM_SOUND = stringPreferencesKey("default_alarm_sound")
+        
+        // Alarm Overlay Customization
+        val OVERLAY_DISMISS_STYLE = intPreferencesKey("overlay_dismiss_style") // 0=Slider, 1=SwipeUp, 2=Button
+        val OVERLAY_BACKGROUND_STYLE = intPreferencesKey("overlay_background_style") // 0=Gradient, 1=Solid, 2=Dark
+        val OVERLAY_SHOW_DISTANCE = booleanPreferencesKey("overlay_show_distance")
+        val OVERLAY_SHOW_EMOJI = booleanPreferencesKey("overlay_show_emoji")
+        val OVERLAY_PRIMARY_COLOR = stringPreferencesKey("overlay_primary_color") // Hex color
+        val OVERLAY_TEXT_COLOR = stringPreferencesKey("overlay_text_color") // Hex color
     }
 
     val isCooldownEnabled: Flow<Boolean> = context.dataStore.data
@@ -94,6 +102,37 @@ class AppPreferences(private val context: Context) {
     val defaultAlarmSound: Flow<String> = context.dataStore.data
         .map { preferences ->
             preferences[DEFAULT_ALARM_SOUND] ?: ""
+        }
+    
+    // Alarm Overlay Customization Flows
+    val overlayDismissStyle: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            preferences[OVERLAY_DISMISS_STYLE] ?: 0 // Default to Slider
+        }
+    
+    val overlayBackgroundStyle: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            preferences[OVERLAY_BACKGROUND_STYLE] ?: 0 // Default to Gradient
+        }
+    
+    val overlayShowDistance: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[OVERLAY_SHOW_DISTANCE] ?: true // Show by default
+        }
+    
+    val overlayShowEmoji: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[OVERLAY_SHOW_EMOJI] ?: true // Show by default
+        }
+    
+    val overlayPrimaryColor: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[OVERLAY_PRIMARY_COLOR] ?: "FF6B6B" // Default red-orange
+        }
+    
+    val overlayTextColor: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[OVERLAY_TEXT_COLOR] ?: "FFFFFF" // Default white
         }
 
     suspend fun setCooldownEnabled(enabled: Boolean) {
@@ -123,6 +162,43 @@ class AppPreferences(private val context: Context) {
     suspend fun setDefaultAlarmSound(uri: String) {
         context.dataStore.edit { preferences ->
             preferences[DEFAULT_ALARM_SOUND] = uri
+        }
+    }
+    
+    // Alarm Overlay Customization Setters
+    suspend fun setOverlayDismissStyle(style: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[OVERLAY_DISMISS_STYLE] = style
+        }
+    }
+    
+    suspend fun setOverlayBackgroundStyle(style: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[OVERLAY_BACKGROUND_STYLE] = style
+        }
+    }
+    
+    suspend fun setOverlayShowDistance(show: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[OVERLAY_SHOW_DISTANCE] = show
+        }
+    }
+    
+    suspend fun setOverlayShowEmoji(show: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[OVERLAY_SHOW_EMOJI] = show
+        }
+    }
+    
+    suspend fun setOverlayPrimaryColor(color: String) {
+        context.dataStore.edit { preferences ->
+            preferences[OVERLAY_PRIMARY_COLOR] = color
+        }
+    }
+    
+    suspend fun setOverlayTextColor(color: String) {
+        context.dataStore.edit { preferences ->
+            preferences[OVERLAY_TEXT_COLOR] = color
         }
     }
 }

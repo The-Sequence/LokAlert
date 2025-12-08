@@ -524,7 +524,14 @@ fun EditLocationSheet(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Gradual Volume", modifier = Modifier.weight(1f))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Gentle wake-up", fontWeight = FontWeight.Medium)
+                Text(
+                    "Starts quiet, gets louder",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Switch(
                 checked = isGradualVolume,
                 onCheckedChange = { isGradualVolume = it }

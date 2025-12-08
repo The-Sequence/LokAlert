@@ -485,7 +485,7 @@ fun BatteryOptimizationPage(
     onRequestBatteryOptimization: () -> Unit
 ) {
     val deviceManufacturer = Build.MANUFACTURER.lowercase()
-    val isXiaomi = deviceManufacturer.contains("xiaomi") || deviceManufacturer.contains("redmi")
+    val isXiaomi = deviceManufacturer.contains("xiaomi") || deviceManufacturer.contains("redmi") || deviceManufacturer.contains("poco")
     
     OnboardingPage(
         title = "Battery Optimization",
@@ -510,7 +510,7 @@ fun BatteryOptimizationPage(
                     modifier = Modifier.padding(16.dp)
                 ) {
                     Text(
-                        text = "Xiaomi/MIUI Users:",
+                        text = "For devices running MIUI/HyperOS:",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onTertiaryContainer
