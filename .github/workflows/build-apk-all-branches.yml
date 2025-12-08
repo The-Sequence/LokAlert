@@ -105,14 +105,17 @@ jobs:
         run: |
           BRANCH="${{ matrix.branch }}"
           BRANCH_SAFE="${{ steps.sign_apk.outputs.branch_safe }}"
+          VERSION="${{ steps.version.outputs.version_name }}"
+          BUILD="${{ steps.version.outputs.version_code }}"
+          DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
           
           # Create release notes file
-          cat > release_notes.md << 'EOF'
-          # 📱 LokAlert APK - ${{ matrix.branch }} Branch
+          cat > release_notes.md << EOF
+          # 📱 LokAlert APK - ${BRANCH} Branch
           
-          **Version:** ${{ steps.version.outputs.version_name }} (Build ${{ steps.version.outputs.version_code }})
-          **Branch:** ${{ matrix.branch }}
-          **Build Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Version:** ${VERSION} (Build ${BUILD})
+          **Branch:** ${BRANCH}
+          **Build Date:** ${DATE}
           
           ## 📦 Installation
           
@@ -128,11 +131,11 @@ jobs:
           # Get recent commits for this branch (last 10)
           git log -10 --pretty=format:"- %s (%an, %ar)" >> release_notes.md
           
-          cat >> release_notes.md << 'EOF'
+          cat >> release_notes.md << EOF
           
           ## ℹ️ About This Build
           
-          This APK is built from the **${{ matrix.branch }}** branch and is signed with a debug certificate for testing purposes.
+          This APK is built from the **${BRANCH}** branch and is signed with a debug certificate for testing purposes.
           
           **Application ID:** com.mobprog.lokalert
           **Package Name:** LokAlert-${BRANCH_SAFE}-debug.apk

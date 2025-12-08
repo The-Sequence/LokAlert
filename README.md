@@ -61,6 +61,20 @@ Since this is the **First Checkpoint**, please note the following behavior:
 
 ---
 
+## 📥 Download Pre-built APKs
+
+Don't want to build from source? You can download pre-built APKs directly from our [Releases page](https://github.com/The-Sequence/LokAlert/releases). 
+
+We automatically build APKs for all branches:
+- **main** - Latest stable version
+- **milestone_1** - Checkpoint 1 features
+- **milestone_2** - Checkpoint 2 with advanced features
+- **NoAlarmNavigation** - Alternative navigation
+
+Each release includes installation instructions and release notes detailing the features and recent changes.
+
+---
+
 ## 🏃‍♀️ How to Run
 
 1.  Clone the repository.
