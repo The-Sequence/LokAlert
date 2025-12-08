@@ -26,21 +26,11 @@ jobs:
           # Fetch all branches
           git fetch --all
           
-          # Get all remote branches excluding HEAD
-          branches=$(git branch -r | grep -v '\->' | sed 's/origin\///' | grep -v '^[[:space:]]*$' | tr '\n' ' ')
+          # Get all remote branches excluding HEAD, using a more robust approach
+          branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin | grep -v '^origin/HEAD$' | sed 's|^origin/||')
           
-          # Convert to JSON array format for matrix
-          branch_array="["
-          first=true
-          for branch in $branches; do
-            if [ "$first" = true ]; then
-              first=false
-            else
-              branch_array="$branch_array,"
-            fi
-            branch_array="$branch_array\"$branch\""
-          done
-          branch_array="$branch_array]"
+          # Convert to JSON array format using jq for safety
+          branch_array=$(echo "$branches" | jq -R -s 'split("\n") | map(select(length > 0))')
           
           echo "branches=$branch_array" >> $GITHUB_OUTPUT
           echo "Found branches: $branch_array"
@@ -94,9 +84,9 @@ jobs:
       - name: Get version info
         id: version
         run: |
-          # Extract version from build.gradle.kts
-          VERSION_NAME=$(grep "versionName" app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/' | head -n 1)
-          VERSION_CODE=$(grep "versionCode" app/build.gradle.kts | sed 's/.*= \(.*\)/\1/' | head -n 1)
+          # Extract version from build.gradle.kts with more robust pattern
+          VERSION_NAME=$(grep "versionName" app/build.gradle.kts | sed 's/.*versionName = "\(.*\)".*/\1/' | head -n 1)
+          VERSION_CODE=$(grep "versionCode" app/build.gradle.kts | sed 's/.*versionCode = \(.*\)/\1/' | head -n 1)
           echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
           echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
       
@@ -158,7 +148,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.sign_apk.outputs.branch_safe }}-v${{ steps.version.outputs.version_name }}-${{ github.run_number }}
+          tag_name: ${{ steps.sign_apk.outputs.branch_safe }}-v${{ steps.version.outputs.version_name }}-${{ github.sha }}
           name: LokAlert ${{ matrix.branch }} - v${{ steps.version.outputs.version_name }}
           body_path: release_notes.md
           files: ${{ steps.sign_apk.outputs.signed_apk }}
