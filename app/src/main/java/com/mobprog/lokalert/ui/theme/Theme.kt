@@ -55,7 +55,7 @@ private val PitchBlackColorScheme = darkColorScheme(
     surfaceContainerLowest = Color(0xFF000000),
 )
 
-// Dark Gray Color Scheme
+// Dark Gray Color Scheme - Softer dark theme (not as dark as AMOLED)
 private val DarkGrayColorScheme = darkColorScheme(
     primary = Color(0xFF90CAF9),
     onPrimary = Color(0xFF1A1A1A),
@@ -77,22 +77,22 @@ private val DarkGrayColorScheme = darkColorScheme(
     errorContainer = Color(0xFFC62828),
     onErrorContainer = Color(0xFFFFCDD2),
     
-    background = Color(0xFF1A1A1A), // Dark gray
-    onBackground = Color(0xFFE0E0E0),
+    background = Color(0xFF2D2D2D), // Medium dark gray
+    onBackground = Color(0xFFE8E8E8),
     
-    surface = Color(0xFF1A1A1A), // Dark gray
-    onSurface = Color(0xFFE0E0E0),
-    surfaceVariant = Color(0xFF242424),
-    onSurfaceVariant = Color(0xFFBDBDBD),
+    surface = Color(0xFF2D2D2D), // Medium dark gray
+    onSurface = Color(0xFFE8E8E8),
+    surfaceVariant = Color(0xFF3A3A3A),
+    onSurfaceVariant = Color(0xFFC0C0C0),
     
-    outline = Color(0xFF616161),
-    outlineVariant = Color(0xFF424242),
+    outline = Color(0xFF707070),
+    outlineVariant = Color(0xFF505050),
     
-    surfaceContainer = Color(0xFF242424),
-    surfaceContainerHigh = Color(0xFF2E2E2E),
-    surfaceContainerHighest = Color(0xFF383838),
-    surfaceContainerLow = Color(0xFF1F1F1F),
-    surfaceContainerLowest = Color(0xFF121212),
+    surfaceContainer = Color(0xFF363636),
+    surfaceContainerHigh = Color(0xFF424242),
+    surfaceContainerHighest = Color(0xFF4D4D4D),
+    surfaceContainerLow = Color(0xFF303030),
+    surfaceContainerLowest = Color(0xFF252525),
 )
 
 private val LightColorScheme = lightColorScheme(

@@ -77,6 +77,17 @@ class AppPreferences(private val context: Context) {
         val OVERLAY_SHOW_EMOJI = booleanPreferencesKey("overlay_show_emoji")
         val OVERLAY_PRIMARY_COLOR = stringPreferencesKey("overlay_primary_color") // Hex color
         val OVERLAY_TEXT_COLOR = stringPreferencesKey("overlay_text_color") // Hex color
+        val OVERLAY_EMOJI = stringPreferencesKey("overlay_emoji") // Custom emoji for alarm
+        
+        // Test Alarm Delay
+        val TEST_ALARM_DELAY_ENABLED = booleanPreferencesKey("test_alarm_delay_enabled")
+        val TEST_ALARM_DELAY_SECONDS = intPreferencesKey("test_alarm_delay_seconds") // 1-5 seconds
+        
+        // Offline Maps
+        val OFFLINE_MODE_ENABLED = booleanPreferencesKey("offline_mode_enabled")
+        val OFFLINE_MAPS_DOWNLOADED = booleanPreferencesKey("offline_maps_downloaded")
+        val OFFLINE_MAPS_SIZE_MB = intPreferencesKey("offline_maps_size_mb")
+        val OFFLINE_MAPS_LAST_UPDATED = stringPreferencesKey("offline_maps_last_updated")
     }
 
     val isCooldownEnabled: Flow<Boolean> = context.dataStore.data
@@ -133,6 +144,21 @@ class AppPreferences(private val context: Context) {
     val overlayTextColor: Flow<String> = context.dataStore.data
         .map { preferences ->
             preferences[OVERLAY_TEXT_COLOR] ?: "FFFFFF" // Default white
+        }
+    
+    val overlayEmoji: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[OVERLAY_EMOJI] ?: "🚨" // Default alarm emoji
+        }
+    
+    val testAlarmDelayEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[TEST_ALARM_DELAY_ENABLED] ?: false
+        }
+    
+    val testAlarmDelaySeconds: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            preferences[TEST_ALARM_DELAY_SECONDS] ?: 3 // Default 3 seconds
         }
 
     suspend fun setCooldownEnabled(enabled: Boolean) {
@@ -196,9 +222,73 @@ class AppPreferences(private val context: Context) {
         }
     }
     
-    suspend fun setOverlayTextColor(color: String) {
+    suspend fun  setOverlayTextColor(color: String) {
         context.dataStore.edit { preferences ->
             preferences[OVERLAY_TEXT_COLOR] = color
+        }
+    }
+    
+    suspend fun setOverlayEmoji(emoji: String) {
+        context.dataStore.edit { preferences ->
+            preferences[OVERLAY_EMOJI] = emoji
+        }
+    }
+    
+    suspend fun setTestAlarmDelayEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[TEST_ALARM_DELAY_ENABLED] = enabled
+        }
+    }
+    
+    suspend fun setTestAlarmDelaySeconds(seconds: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[TEST_ALARM_DELAY_SECONDS] = seconds.coerceIn(1, 5)
+        }
+    }
+    
+    // Offline Maps Flows
+    val offlineModeEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[OFFLINE_MODE_ENABLED] ?: false
+        }
+    
+    val offlineMapsDownloaded: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[OFFLINE_MAPS_DOWNLOADED] ?: false
+        }
+    
+    val offlineMapsSizeMB: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            preferences[OFFLINE_MAPS_SIZE_MB] ?: 0
+        }
+    
+    val offlineMapsLastUpdated: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[OFFLINE_MAPS_LAST_UPDATED] ?: ""
+        }
+    
+    // Offline Maps Setters
+    suspend fun setOfflineModeEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[OFFLINE_MODE_ENABLED] = enabled
+        }
+    }
+    
+    suspend fun setOfflineMapsDownloaded(downloaded: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[OFFLINE_MAPS_DOWNLOADED] = downloaded
+        }
+    }
+    
+    suspend fun setOfflineMapsSizeMB(sizeMB: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[OFFLINE_MAPS_SIZE_MB] = sizeMB
+        }
+    }
+    
+    suspend fun setOfflineMapsLastUpdated(date: String) {
+        context.dataStore.edit { preferences ->
+            preferences[OFFLINE_MAPS_LAST_UPDATED] = date
         }
     }
 }

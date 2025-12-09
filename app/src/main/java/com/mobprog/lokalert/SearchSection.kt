@@ -38,6 +38,11 @@ fun SearchSection(
     var userHasSelectedSuggestion by remember { mutableStateOf(false) }
     val keyboardController = LocalSoftwareKeyboardController.current
     var showError by remember { mutableStateOf(false) }
+    
+    // Detect orientation for responsive layout
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val topPadding = if (isLandscape) 24.dp else 48.dp
 
     // Places Client Setup with error handling
     val placesClient = remember {
@@ -106,7 +111,7 @@ fun SearchSection(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp) // Outer padding from screen edges
-            .padding(top = 48.dp) // Push down from status bar to avoid overlap
+            .padding(top = topPadding) // Dynamic padding - less in landscape to avoid overlap
     ) {
         Surface(
             shadowElevation = 8.dp,

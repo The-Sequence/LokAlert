@@ -3,15 +3,28 @@
   <component name="deploymentTargetSelector">
     <selectionStates>
       <SelectionState runConfigName="app">
-        <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2025-12-03T07:20:57.760037Z">
+        <option name="selectionMode" value="DIALOG" />
+        <DropdownSelection timestamp="2025-12-09T13:43:29.355577Z">
           <Target type="DEFAULT_BOOT">
             <handle>
-              <DeviceId pluginId="LocalEmulator" identifier="path=/Users/apple/.android/avd/Pixel_9_Pro_Fold.avd" />
+              <DeviceId pluginId="LocalEmulator" identifier="path=/Users/apple/.android/avd/Pixel_9_Pro_XL.avd" />
             </handle>
           </Target>
         </DropdownSelection>
-        <DialogSelection />
+        <DialogSelection>
+          <targets>
+            <Target type="DEFAULT_BOOT">
+              <handle>
+                <DeviceId pluginId="LocalEmulator" identifier="path=/Users/apple/.android/avd/Pixel_9_Pro_Fold.avd" />
+              </handle>
+            </Target>
+            <Target type="DEFAULT_BOOT">
+              <handle>
+                <DeviceId pluginId="LocalEmulator" identifier="path=/Users/apple/.android/avd/Pixel_9_Pro_XL.avd" />
+              </handle>
+            </Target>
+          </targets>
+        </DialogSelection>
       </SelectionState>
     </selectionStates>
   </component>

@@ -620,9 +620,15 @@ fun EditLocationSheet(
 }
 
 @Composable
-fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) -> Unit) {
+fun EnhancedDaySelector(selectedDays: Set<Int>, isCompact: Boolean = false, onSelectionChange: (Set<Int>) -> Unit) {
     var selectedPreset by remember { mutableStateOf("Custom") }
     var showCustomDays by remember { mutableStateOf(false) }
+    
+    // Dynamic sizing based on compact mode
+    val chipTextSize = if (isCompact) 11.sp else 14.sp
+    val cardPadding = if (isCompact) 8.dp else 12.dp
+    val messageTextSize = if (isCompact) 11.sp else 12.sp
+    val labelTextSize = if (isCompact) 10.sp else 12.sp
     
     // Get current day of week
     val currentDay = remember { java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) }
@@ -667,13 +673,13 @@ fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) ->
         showCustomDays = selectedPreset == "Custom"
     }
     
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(if (isCompact) 4.dp else 8.dp)) {
         // Preset options
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (isCompact) 4.dp else 8.dp)
         ) {
             FilterChip(
                 selected = selectedPreset == "This Day Only",
@@ -682,7 +688,7 @@ fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) ->
                     onSelectionChange(setOf(currentDay))
                     showCustomDays = false
                 },
-                label = { Text("This Day Only") }
+                label = { Text(if (isCompact) "Today" else "This Day Only", fontSize = chipTextSize) }
             )
             
             FilterChip(
@@ -692,7 +698,7 @@ fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) ->
                     onSelectionChange(weekdays)
                     showCustomDays = false
                 },
-                label = { Text("Weekdays") }
+                label = { Text("Weekdays", fontSize = chipTextSize) }
             )
             
             FilterChip(
@@ -702,7 +708,7 @@ fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) ->
                     onSelectionChange(weekends)
                     showCustomDays = false
                 },
-                label = { Text("Weekends") }
+                label = { Text("Weekends", fontSize = chipTextSize) }
             )
             
             FilterChip(
@@ -712,7 +718,7 @@ fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) ->
                     onSelectionChange(everyday)
                     showCustomDays = false
                 },
-                label = { Text("Everyday") }
+                label = { Text("Everyday", fontSize = chipTextSize) }
             )
             
             FilterChip(
@@ -721,11 +727,12 @@ fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) ->
                     selectedPreset = "Custom"
                     showCustomDays = true
                 },
-                label = { Text("Custom") }
+                label = { Text("Custom", fontSize = chipTextSize) }
             )
         }
         
-        // Friendly message and day indicators for presets
+        // Friendly message and day indicators for presets (hide in compact mode to save space)
+        if (!isCompact) {
         when (selectedPreset) {
             "This Day Only" -> {
                 Card(
@@ -735,20 +742,22 @@ fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) ->
                     )
                 ) {
                     Column(
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.padding(cardPadding),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
                             "This alarm will only run today ($currentDayName)",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontSize = messageTextSize
                         )
                         // Show single day indicator
                         Text(
                             "📅 $currentDayName",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = labelTextSize
                         )
                     }
                 }
@@ -761,13 +770,14 @@ fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) ->
                     )
                 ) {
                     Column(
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.padding(cardPadding),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
                             "Alarm will run Monday through Friday",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            fontSize = messageTextSize
                         )
                         // Show weekday indicators
                         Row(
@@ -780,6 +790,7 @@ fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) ->
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Medium,
                                     color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    fontSize = labelTextSize,
                                     modifier = Modifier
                                         .background(
                                             MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f),
@@ -800,13 +811,14 @@ fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) ->
                     )
                 ) {
                     Column(
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.padding(cardPadding),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
                             "Alarm will run on Saturdays and Sundays",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            fontSize = messageTextSize
                         )
                         // Show weekend indicators
                         Row(
@@ -819,6 +831,7 @@ fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) ->
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Medium,
                                     color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    fontSize = labelTextSize,
                                     modifier = Modifier
                                         .background(
                                             MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f),
@@ -839,13 +852,14 @@ fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) ->
                     )
                 ) {
                     Column(
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.padding(cardPadding),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
                             "Alarm will run every day of the week",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = messageTextSize
                         )
                         // Show all day indicators
                         Row(
@@ -858,6 +872,7 @@ fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) ->
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Medium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = labelTextSize,
                                     modifier = Modifier
                                         .background(
                                             MaterialTheme.colorScheme.surfaceVariant,
@@ -871,6 +886,7 @@ fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) ->
                 }
             }
         }
+        } // End of !isCompact block
         
         // Custom day picker (shown when Custom is selected)
         if (showCustomDays) {
@@ -889,7 +905,7 @@ fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) ->
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(if (isCompact) 4.dp else 8.dp)
             ) {
                 daysOfWeek.forEachIndexed { index, dayLabel ->
                     val day = calendarDays[index]
@@ -900,9 +916,9 @@ fun EnhancedDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) ->
                             val newDays = if (isSelected) selectedDays - day else selectedDays + day
                             onSelectionChange(newDays)
                         },
-                        label = { Text(dayLabel) },
+                        label = { Text(dayLabel, fontSize = chipTextSize) },
                         leadingIcon = if (isSelected) {
-                            { Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp)) }
+                            { Icon(Icons.Default.Check, null, modifier = Modifier.size(if (isCompact) 12.dp else 16.dp)) }
                         } else null
                     )
                 }

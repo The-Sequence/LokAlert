@@ -1,21 +1,18 @@
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    id("com.google.devtools.ksp")
+    alias(libs.plugins.ksp)
 }
 
 android {
     namespace = "com.mobprog.lokalert"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.mobprog.lokalert"
         minSdk = 24
-        targetSdk = 36
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
@@ -32,11 +29,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions {
-        jvmTarget = "11"
+        jvmTarget = "17"
     }
     buildFeatures {
         compose = true
@@ -52,7 +49,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation(libs.androidx.compose.material.icons.extended)
+    implementation(libs.androidx.compose.foundation)
 
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.material3)
@@ -67,14 +65,18 @@ dependencies {
     implementation(libs.google.maps.compose)
     implementation(libs.play.services.location)
     implementation(libs.places)
-    implementation("androidx.compose.foundation:foundation")
-    implementation("com.google.accompanist:accompanist-permissions:0.37.3")
-    implementation("androidx.datastore:datastore-preferences:1.2.0")
+    implementation(libs.accompanist.permissions)
+    implementation(libs.androidx.datastore.preferences)
 
-    val roomVersion = "2.8.4"
-    implementation("androidx.room:room-runtime:$roomVersion")
-    implementation("androidx.room:room-ktx:$roomVersion") // Important for Coroutines support
-    ksp("androidx.room:room-compiler:$roomVersion")
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
 
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    
+    // Offline maps support with osmdroid
+    implementation(libs.osmdroid.android)
+    
+    // OkHttp for downloading map tiles
+    implementation(libs.okhttp)
 }

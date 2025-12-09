@@ -14,7 +14,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector4D
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.TwoWayConverter
 import androidx.compose.foundation.Canvas
@@ -31,6 +33,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -106,6 +109,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -206,6 +210,9 @@ fun LokAlertAppEntryPoint() {
             }
         }
     }
+    
+    // State to track if we should preload the main app
+    var shouldPreloadMainApp by remember { mutableStateOf(false) }
 
     when {
         isOnboardingCompleted == null -> {
@@ -230,6 +237,21 @@ fun LokAlertAppEntryPoint() {
                             Manifest.permission.ACCESS_COARSE_LOCATION
                         ) == PackageManager.PERMISSION_GRANTED
                     }
+                },
+                onPreloadMap = {
+                    // Signal to preload the main app
+                    shouldPreloadMainApp = true
+                },
+                backgroundContent = {
+                    // Render the main app behind onboarding for the circular reveal
+                    // Suppress tour prompt during preload
+                    if (shouldPreloadMainApp) {
+                        // Start foreground location tracking service
+                        LaunchedEffect(Unit) {
+                            LocationTrackingService.startService(context)
+                        }
+                        LokAlertApp(suppressTourPrompt = true)
+                    }
                 }
             )
         }
@@ -248,7 +270,7 @@ fun LokAlertAppEntryPoint() {
 }
 
 @Composable
-fun LokAlertApp() {
+fun LokAlertApp(suppressTourPrompt: Boolean = false) {
     var currentScreen by remember { mutableStateOf("Maps") }
     var titleColor by remember { mutableStateOf(Color(0xFF006DFF)) }
     var isRainbowEffectEnabled by remember { mutableStateOf(false) }
@@ -264,6 +286,12 @@ fun LokAlertApp() {
     var showGuidedTour by remember { mutableStateOf(false) }
     var tourStep by remember { mutableIntStateOf(0) }
     
+    // Interactive tour action tracking
+    var tourMapInteracted by remember { mutableStateOf(false) }
+    var tourSearchInteracted by remember { mutableStateOf(false) }
+    var allowMapInteraction by remember { mutableStateOf(false) }
+    var allowSearchInteraction by remember { mutableStateOf(false) }
+    
     // Tour Prompt and Help Icon Spotlight State
     val userPreferences = remember { Onboarding(context) }
     val tourPromptShown by userPreferences.isTourPromptShown.collectAsState(initial = null)
@@ -274,6 +302,9 @@ fun LokAlertApp() {
     // Get dark mode preference
     val appPreferences = remember { AppPreferences(context) }
     val darkMode by appPreferences.darkMode.collectAsState(initial = 0)
+    
+    // Get offline mode state
+    val isOfflineModeEnabled by appPreferences.offlineModeEnabled.collectAsState(initial = false)
     
     // UI Element positions for spotlight
     var topBarBounds by remember { mutableStateOf<Rect?>(null) }
@@ -364,14 +395,22 @@ fun LokAlertApp() {
                     onSettingsIconPositioned = { settingsIconBounds = it },
                     onTopBarPositioned = { topBarBounds = it },
                     showBackButton = effectiveScreen == "Settings",
-                    onBackClick = { currentScreen = "Maps" }
+                    onBackClick = { currentScreen = "Maps" },
+                    isOfflineMode = isOfflineModeEnabled
                 ) 
             },
             bottomBar = {
                 if (effectiveScreen != "Settings") {
                     BottomNavBar(
                         currentScreen = effectiveScreen,
-                        onScreenSelected = { if (!showGuidedTour) currentScreen = it },
+                        onScreenSelected = { screen ->
+                            // During tour, track navigation and allow it
+                            if (showGuidedTour) {
+                                currentScreen = screen
+                            } else {
+                                currentScreen = screen
+                            }
+                        },
                         onBottomNavPositioned = { bottomNavBounds = it },
                         onMapTabPositioned = { mapTabBounds = it },
                         onLocationsTabPositioned = { locationsTabBounds = it }
@@ -380,38 +419,41 @@ fun LokAlertApp() {
             }
         ) { paddingValues ->
             Box(modifier = Modifier.padding(paddingValues)) {
-                when (effectiveScreen) {
-                    "Maps" -> MapsScreen(
-                        onNewSearch = { query -> addRecentSearch(query) },
-                        onDone = { 
-                            // Smooth transition with slight delay for visual feedback
-                            scope.launch {
-                                kotlinx.coroutines.delay(300) // Allow sheet close animation to complete
-                                currentScreen = "Locations"
+                // Use smooth animated screen transitions
+                AnimatedScreenTransition(targetState = effectiveScreen) { screen ->
+                    when (screen) {
+                        "Maps" -> MapsScreen(
+                            onNewSearch = { query -> addRecentSearch(query) },
+                            onDone = { 
+                                // Smooth transition with slight delay for visual feedback
+                                scope.launch {
+                                    kotlinx.coroutines.delay(200) // Reduced delay for snappier feel
+                                    currentScreen = "Locations"
+                                }
+                            },
+                            viewModel = mapsViewModel,
+                            darkMode = darkMode
+                        )
+                        "Locations" -> LocationsScreen(
+                            recentSearches = recentSearches,
+                            viewModel = mapsViewModel,
+                            onViewOnMap = {
+                                // Switch to Map screen when "View on Map" is clicked in the sheet
+                                if (!showGuidedTour) currentScreen = "Maps"
                             }
-                        },
-                        viewModel = mapsViewModel,
-                        darkMode = darkMode
-                    )
-                    "Locations" -> LocationsScreen(
-                        recentSearches = recentSearches,
-                        viewModel = mapsViewModel,
-                        onViewOnMap = {
-                            // Switch to Map screen when "View on Map" is clicked in the sheet
-                            if (!showGuidedTour) currentScreen = "Maps"
-                        }
-                    )
-                    "Settings" -> SettingsScreen(
-                        onColorChange = { titleColor = it },
-                        isRainbowEnabled = isRainbowEffectEnabled,
-                        onRainbowToggle = { isRainbowEffectEnabled = it }
-                    )
+                        )
+                        "Settings" -> SettingsScreen(
+                            onColorChange = { titleColor = it },
+                            isRainbowEnabled = isRainbowEffectEnabled,
+                            onRainbowToggle = { isRainbowEffectEnabled = it }
+                        )
+                    }
                 }
             }
         }
         
-        // Tour Prompt Dialog
-        if (showTourPrompt && !showGuidedTour && !showHelpIconSpotlight) {
+        // Tour Prompt Dialog (only when not suppressed - e.g., during preload)
+        if (showTourPrompt && !showGuidedTour && !showHelpIconSpotlight && !suppressTourPrompt) {
             TourPromptDialog(
                 onStartTour = {
                     showTourPrompt = false
@@ -460,9 +502,22 @@ fun LokAlertApp() {
                 searchBarBounds = searchBarBounds,
                 mapAreaBounds = mapAreaBounds,
                 setPinButtonBounds = setPinButtonBounds,
+                currentScreen = currentScreen,
+                hasInteractedWithMap = tourMapInteracted,
+                hasInteractedWithSearch = tourSearchInteracted,
                 onNext = { tourStep++ },
                 onBack = { tourStep-- },
-                onFinish = { showGuidedTour = false; tourStep = 0 }
+                onFinish = { 
+                    showGuidedTour = false
+                    tourStep = 0
+                    tourMapInteracted = false
+                    tourSearchInteracted = false
+                    allowMapInteraction = false
+                    allowSearchInteraction = false
+                },
+                onAllowMapInteraction = { allowMapInteraction = true },
+                onAllowSearchInteraction = { allowSearchInteraction = true },
+                onNavigateToScreen = { screen -> currentScreen = screen }
             )
         }
     }
@@ -494,7 +549,8 @@ fun TopBar(
     onSettingsIconPositioned: (Rect) -> Unit = {},
     onTopBarPositioned: (Rect) -> Unit = {},
     showBackButton: Boolean = false,
-    onBackClick: () -> Unit = {}
+    onBackClick: () -> Unit = {},
+    isOfflineMode: Boolean = false
 ) {
     var showHelpDialog by remember { mutableStateOf(false) }
 
@@ -557,13 +613,47 @@ fun TopBar(
             }
         }
         
-        // App Title (Center)
-        Text(
-            text = "LokAlert",
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold,
-            color = color
-        )
+        // App Title with Mode Indicator (Center)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            Text(
+                text = "LokAlert",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = color
+            )
+            // Mode indicator badge
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .background(
+                        color = if (isOfflineMode) 
+                            MaterialTheme.colorScheme.tertiaryContainer 
+                        else 
+                            MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = if (isOfflineMode) "📴" else "🌐",
+                    fontSize = 10.sp
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = if (isOfflineMode) "Offline" else "Online",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isOfflineMode)
+                        MaterialTheme.colorScheme.onTertiaryContainer
+                    else
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
 
         // Settings Icon (Aligned Right)
         IconButton(
@@ -803,27 +893,127 @@ fun TourPromptDialog(
     onStartTour: () -> Unit,
     onDecline: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDecline,
-        title = { Text("Welcome to LokAlert!") },
-        text = {
-            Column {
-                Text("Would you like a quick guided tour to learn how to use the app?")
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("It only takes a minute and will help you get started.")
-            }
-        },
-        confirmButton = {
-            Button(onClick = onStartTour) {
-                Text("Start Tour")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDecline) {
-                Text("Skip")
+    val configuration = LocalConfiguration.current
+    val isCompact = configuration.screenWidthDp < 360
+    
+    // Animation states
+    var isVisible by remember { mutableStateOf(false) }
+    
+    val scale by animateFloatAsState(
+        targetValue = if (isVisible) 1f else 0.8f,
+        animationSpec = tween(400, easing = FastOutSlowInEasing),
+        label = "speech_bubble_scale"
+    )
+    
+    val alpha by animateFloatAsState(
+        targetValue = if (isVisible) 1f else 0f,
+        animationSpec = tween(300),
+        label = "speech_bubble_alpha"
+    )
+    
+    // Trigger animation on appear
+    LaunchedEffect(Unit) {
+        isVisible = true
+    }
+    
+    // Speech bubble overlay
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.5f * alpha))
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() }
+            ) { /* Dismiss on tap outside? Currently no action */ },
+        contentAlignment = Alignment.Center
+    ) {
+        // Speech bubble card
+        Card(
+            modifier = Modifier
+                .padding(if (isCompact) 16.dp else 24.dp)
+                .widthIn(max = 340.dp)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    this.alpha = alpha
+                },
+            shape = RoundedCornerShape(if (isCompact) 20.dp else 24.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(if (isCompact) 16.dp else 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Emoji icon
+                Text(
+                    text = "👋",
+                    fontSize = if (isCompact) 36.sp else 48.sp
+                )
+                
+                Spacer(modifier = Modifier.height(if (isCompact) 10.dp else 16.dp))
+                
+                Text(
+                    text = "Welcome to LokAlert!",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    fontSize = if (isCompact) 20.sp else 24.sp
+                )
+                
+                Spacer(modifier = Modifier.height(if (isCompact) 8.dp else 12.dp))
+                
+                Text(
+                    text = "Would you like a quick guided tour to learn how to use the app?",
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = if (isCompact) 13.sp else 14.sp
+                )
+                
+                Spacer(modifier = Modifier.height(6.dp))
+                
+                Text(
+                    text = "It only takes a minute! ⏱️",
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = if (isCompact) 11.sp else 12.sp
+                )
+                
+                Spacer(modifier = Modifier.height(if (isCompact) 16.dp else 24.dp))
+                
+                // Buttons
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(if (isCompact) 8.dp else 12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDecline,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(
+                            horizontal = if (isCompact) 12.dp else 16.dp,
+                            vertical = if (isCompact) 8.dp else 10.dp
+                        )
+                    ) {
+                        Text("Skip", fontSize = if (isCompact) 13.sp else 14.sp)
+                    }
+                    
+                    Button(
+                        onClick = onStartTour,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(
+                            horizontal = if (isCompact) 12.dp else 16.dp,
+                            vertical = if (isCompact) 8.dp else 10.dp
+                        )
+                    ) {
+                        Text("Start Tour", fontSize = if (isCompact) 13.sp else 14.sp)
+                    }
+                }
             }
         }
-    )
+    }
 }
 
 @Composable
@@ -889,7 +1079,9 @@ data class InteractiveTourStep(
     val spotlightBounds: Rect?,
     val secondarySpotlightBounds: Rect? = null,
     val bubblePosition: BubblePosition,
-    val useCircularSpotlight: Boolean = false
+    val useCircularSpotlight: Boolean = false,
+    val requiresAction: Boolean = false,
+    val actionHint: String = ""
 )
 
 @Composable
@@ -904,82 +1096,102 @@ fun GuidedTourOverlay(
     searchBarBounds: Rect?,
     mapAreaBounds: Rect?,
     setPinButtonBounds: Rect?,
+    currentScreen: String,
+    hasInteractedWithMap: Boolean,
+    hasInteractedWithSearch: Boolean,
     onNext: () -> Unit,
     onBack: () -> Unit,
-    onFinish: () -> Unit
+    onFinish: () -> Unit,
+    onAllowMapInteraction: () -> Unit,
+    onAllowSearchInteraction: () -> Unit,
+    onNavigateToScreen: (String) -> Unit
 ) {
     val tourSteps = listOf(
         InteractiveTourStep(
             title = "Welcome to LokAlert! 👋",
-            message = "Thanks for choosing us! Tap the Help icon (?) anytime to restart this tour. The Settings icon (⚙️) lets you customize your experience.",
+            message = "Let's learn how to use the app together. This interactive tour will guide you step by step.",
             spotlightBounds = helpIconBounds,
             secondarySpotlightBounds = settingsIconBounds,
             bubblePosition = BubblePosition.BELOW,
-            useCircularSpotlight = true
+            useCircularSpotlight = true,
+            requiresAction = false,
+            actionHint = ""
         ),
         InteractiveTourStep(
-            title = "Your Navigation Hub",
-            message = "Switch between Map and Alarms screens using these tabs. Everything you need is just a tap away!",
-            spotlightBounds = bottomNavBounds,
+            title = "Try It: Go to Alarms 🔔",
+            message = "Tap the 'Alarms' tab now to see your saved location alarms!",
+            spotlightBounds = locationsTabBounds,  // Highlight specific Alarms tab
             secondarySpotlightBounds = null,
             bubblePosition = BubblePosition.ABOVE,
-            useCircularSpotlight = false
+            useCircularSpotlight = false,
+            requiresAction = true,
+            actionHint = "👆 Tap 'Alarms' tab"
+        ),
+        InteractiveTourStep(
+            title = "Alarms Screen ✅",
+            message = "Great! This is where all your location alarms are displayed. Now tap 'Map' to go back.",
+            spotlightBounds = mapTabBounds,  // Highlight specific Map tab
+            secondarySpotlightBounds = null,
+            bubblePosition = BubblePosition.ABOVE,
+            useCircularSpotlight = false,
+            requiresAction = true,
+            actionHint = "👆 Tap 'Map' tab"
         ),
         InteractiveTourStep(
             title = "Map Screen 🗺️",
-            message = "This is your main workspace for creating location alarms. Pin destinations and set up alerts with ease!",
+            message = "This is your main workspace! Here you can search for places and set location alarms.",
             spotlightBounds = mapTabBounds,
             secondarySpotlightBounds = null,
             bubblePosition = BubblePosition.ABOVE,
-            useCircularSpotlight = false
+            useCircularSpotlight = false,
+            requiresAction = false,
+            actionHint = ""
         ),
         InteractiveTourStep(
-            title = "Find Your Destination 🔍",
-            message = "Search for any place or long-press anywhere on the map to drop a pin. Finding locations has never been easier!",
+            title = "Search Bar 🔍",
+            message = "Use this search bar to find any location. Type an address, place name, or landmark to search.",
             spotlightBounds = searchBarBounds,
             secondarySpotlightBounds = null,
             bubblePosition = BubblePosition.BELOW,
-            useCircularSpotlight = false
+            useCircularSpotlight = false,
+            requiresAction = false,
+            actionHint = ""
         ),
         InteractiveTourStep(
-            title = "Interactive Map View",
-            message = "Long-press to place a pin, then drag it to fine-tune your location. The blue circle shows your alert radius!",
+            title = "Interactive Map",
+            message = "Long-press anywhere on the map to drop a pin. Then you can adjust the radius and save your alarm!",
             spotlightBounds = mapAreaBounds,
             secondarySpotlightBounds = null,
             bubblePosition = BubblePosition.CENTER,
-            useCircularSpotlight = false
+            useCircularSpotlight = false,
+            requiresAction = false,
+            actionHint = ""
         ),
         InteractiveTourStep(
-            title = "Manage Your Alarms 🔔",
-            message = "Access all your location alarms here. View, edit, enable, disable, or delete alarms with just a few taps!",
-            spotlightBounds = locationsTabBounds,
-            secondarySpotlightBounds = null,
-            bubblePosition = BubblePosition.ABOVE,
-            useCircularSpotlight = false
-        ),
-        InteractiveTourStep(
-            title = "Ready to Go! 🎉",
-            message = "You're all set to create your first location alarm. Never miss your destination again with LokAlert!",
+            title = "You're Ready! 🎉",
+            message = "Congratulations! You now know how to use LokAlert. Create your first location alarm and never miss your destination again!",
             spotlightBounds = null,
             secondarySpotlightBounds = null,
             bubblePosition = BubblePosition.CENTER,
-            useCircularSpotlight = false
+            useCircularSpotlight = false,
+            requiresAction = false,
+            actionHint = ""
         )
     )
     
     val currentTourStep = tourSteps.getOrNull(step) ?: return
     
+    // Check if current step's action is completed
+    val isActionCompleted = when (step) {
+        1 -> currentScreen == "Locations" || currentScreen == "Alarms" // User tapped Alarms tab
+        2 -> currentScreen == "Maps"   // User tapped Map tab
+        else -> true // No action required
+    }
+    
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        awaitPointerEvent()
-                    }
-                }
-            }
+        modifier = Modifier.fillMaxSize()
     ) {
+        // Semi-transparent overlay that allows clicking through to navigation
         Canvas(modifier = Modifier.fillMaxSize()) {
             val overlayPath = Path().apply {
                 fillType = PathFillType.EvenOdd
@@ -1036,11 +1248,14 @@ fun GuidedTourOverlay(
         SpeechBubble(
             title = currentTourStep.title,
             message = currentTourStep.message,
+            actionHint = currentTourStep.actionHint,
             position = currentTourStep.bubblePosition,
             spotlightBounds = currentTourStep.spotlightBounds,
             step = step,
             totalSteps = tourSteps.size,
-            onNext = if (step < tourSteps.size - 1) onNext else null,
+            requiresAction = currentTourStep.requiresAction,
+            isActionCompleted = isActionCompleted,
+            onNext = if (step < tourSteps.size - 1 && isActionCompleted) onNext else null,
             onBack = if (step > 0) onBack else null,
             onFinish = if (step == tourSteps.size - 1) onFinish else null,
             onSkip = onFinish
@@ -1052,41 +1267,78 @@ fun GuidedTourOverlay(
 fun BoxScope.SpeechBubble(
     title: String,
     message: String,
+    actionHint: String = "",
     position: BubblePosition,
     spotlightBounds: Rect?,
     step: Int,
     totalSteps: Int,
+    requiresAction: Boolean = false,
+    isActionCompleted: Boolean = true,
     onNext: (() -> Unit)?,
     onBack: (() -> Unit)?,
     onFinish: (() -> Unit)?,
     onSkip: () -> Unit
 ) {
     val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val screenHeight = with(density) { configuration.screenHeightDp.dp.toPx() }
+    val screenWidth = with(density) { configuration.screenWidthDp.dp.toPx() }
+    
+    // Calculate bubble height estimate (varies based on content)
+    val estimatedBubbleHeight = with(density) { 280.dp.toPx() }
+    val bubbleWidth = 300.dp
+    val horizontalPadding = with(density) { 16.dp.toPx() }
     
     val modifier = when (position) {
         BubblePosition.ABOVE -> {
-            spotlightBounds?.let {
-                val offsetY = with(density) { (it.top - 220.dp.toPx()).toInt() }
+            spotlightBounds?.let { bounds ->
+                // Position bubble above the spotlight with enough clearance
+                val availableSpaceAbove = bounds.top
+                val offsetY = if (availableSpaceAbove > estimatedBubbleHeight + 40) {
+                    // Enough space above - place near the top with some margin
+                    with(density) { (bounds.top - estimatedBubbleHeight - 20.dp.toPx()).toInt().coerceAtLeast(20.dp.toPx().toInt()) }
+                } else {
+                    // Not enough space above - place at top of screen
+                    with(density) { 60.dp.toPx().toInt() }
+                }
+                
                 Modifier
-                    .width(280.dp)
+                    .width(bubbleWidth)
+                    .padding(horizontal = 16.dp)
+                    .align(Alignment.TopCenter)
                     .offset { IntOffset(0, offsetY) }
             } ?: Modifier
-                .width(280.dp)
+                .width(bubbleWidth)
+                .padding(horizontal = 16.dp)
                 .align(Alignment.TopCenter)
+                .padding(top = 80.dp)
         }
         BubblePosition.BELOW -> {
-            spotlightBounds?.let {
-                val offsetY = with(density) { (it.bottom + 20.dp.toPx()).toInt() }
+            spotlightBounds?.let { bounds ->
+                // Position bubble below the spotlight with enough clearance
+                val availableSpaceBelow = screenHeight - bounds.bottom
+                val offsetY = if (availableSpaceBelow > estimatedBubbleHeight + 40) {
+                    // Enough space below - place right below spotlight
+                    with(density) { (bounds.bottom + 24.dp.toPx()).toInt() }
+                } else {
+                    // Not enough space below - place at center or adjust
+                    with(density) { (screenHeight / 2 - estimatedBubbleHeight / 2).toInt() }
+                }
+                
                 Modifier
-                    .width(280.dp)
-                    .offset { IntOffset(0, offsetY) }
+                    .width(bubbleWidth)
+                    .padding(horizontal = 16.dp)
+                    .align(Alignment.TopStart)
+                    .offset { IntOffset(((screenWidth - bubbleWidth.toPx()) / 2).toInt(), offsetY) }
             } ?: Modifier
-                .width(280.dp)
-                .align(Alignment.BottomCenter)
+                .width(bubbleWidth)
+                .padding(horizontal = 16.dp)
+                .align(Alignment.Center)
         }
         BubblePosition.CENTER -> {
             Modifier
-                .width(280.dp)
+                .width(bubbleWidth)
+                .padding(horizontal = 16.dp)
                 .align(Alignment.Center)
         }
     }
@@ -1127,6 +1379,44 @@ fun BoxScope.SpeechBubble(
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
             
+            // Show action hint if action is required but not completed
+            if (requiresAction && !isActionCompleted && actionHint.isNotEmpty()) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = actionHint,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
+            }
+            
+            // Show completion indicator
+            if (requiresAction && isActionCompleted) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFF4CAF50).copy(alpha = 0.2f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "✅ Great job! Tap Next to continue",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                        color = Color(0xFF2E7D32),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
+            }
+            
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1147,7 +1437,18 @@ fun BoxScope.SpeechBubble(
                         Text("Finish 🎉")
                     }
                 } else if (onNext != null) {
-                    Button(onClick = onNext) {
+                    Button(
+                        onClick = onNext,
+                        enabled = !requiresAction || isActionCompleted
+                    ) {
+                        Text("Next →")
+                    }
+                } else if (requiresAction && !isActionCompleted) {
+                    // Show disabled button when waiting for action
+                    Button(
+                        onClick = {},
+                        enabled = false
+                    ) {
                         Text("Next →")
                     }
                 }

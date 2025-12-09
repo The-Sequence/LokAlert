@@ -224,7 +224,7 @@ fun AboutUsScreen(onDismiss: () -> Unit = {}, isEmbedded: Boolean = false) {
 data class Pipe(
     var x: Float,
     val gapY: Float,
-    val gapSize: Float = 200f,
+    val gapSize: Float = 350f,  // Larger gap - easier to fly through
     var passed: Boolean = false
 )
 
@@ -272,19 +272,19 @@ fun FlappyAlertGame(onDismiss: () -> Unit) {
     var highScore by remember { mutableIntStateOf(0) }
     var lastScore by remember { mutableIntStateOf(-1) }
     
-    // Bird physics
+    // Bird physics - EASY MODE
     var birdY by remember { mutableFloatStateOf(screenHeight / 2) }
     var birdVelocity by remember { mutableFloatStateOf(0f) }
     val birdX = screenWidth * 0.2f
-    val birdSize = 50f
-    val gravity = 0.8f
-    val jumpVelocity = -15f
+    val birdSize = 30f
+    val gravity = 2.0f  // Reduced - bird falls slower
+    val jumpVelocity = -20f  // Stronger jump
     
-    // Pipes
+    // Pipes - EASY MODE
     var pipes by remember { mutableStateOf(listOf<Pipe>()) }
     val pipeWidth = 80f
-    val pipeSpeed = 6f
-    val pipeSpacing = 350f
+    val pipeSpeed = 6f  // Slower pipes
+    val pipeSpacing = 1000f  // More space between pipes
     
     // Animation
     var frameCount by remember { mutableLongStateOf(0L) }

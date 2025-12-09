@@ -960,6 +960,7 @@ fun MapsScreen(
 
 // --- EXTRACTED COMPOSABLES AND HELPERS ---
 
+@SuppressLint("UnrememberedMutableState")
 @Composable
 fun QuickAlarmDialog(
     quickAlarmLocation: LatLng,
@@ -1027,13 +1028,19 @@ fun QuickAlarmDialog(
     // Detect screen size for responsive layout
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
-    val isWideScreen = screenWidth > 600.dp
+    val screenHeight = configuration.screenHeightDp.dp
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val isWideScreen = screenWidth > 600.dp || (isLandscape && screenWidth > 500.dp)
+    val isCompactHeight = screenHeight < 500.dp
     
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             modifier = Modifier
-                .fillMaxWidth(if (isWideScreen) 0.65f else 0.92f)
-                .fillMaxHeight(if (isWideScreen) 0.8f else 0.75f),
+                .fillMaxWidth(if (isLandscape) 0.85f else if (isWideScreen) 0.65f else 0.92f)
+                .fillMaxHeight(if (isCompactHeight) 0.95f else if (isWideScreen) 0.8f else 0.75f),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
@@ -1041,9 +1048,185 @@ fun QuickAlarmDialog(
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                Column(
-                    modifier = Modifier.fillMaxSize()
-                ) {
+                if (isLandscape && isCompactHeight) {
+                    // Landscape compact layout - side by side
+                    Row(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        // Left side - Map
+                        Column(
+                            modifier = Modifier
+                                .weight(0.5f)
+                                .fillMaxHeight()
+                                .padding(12.dp)
+                        ) {
+                            // Header
+                            Text(
+                                "⚡ Quick Alarm",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            // Mini map preview
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                val quickMapCameraState = rememberCameraPositionState {
+                                    position = CameraPosition.fromLatLngZoom(currentLocation, 15f)
+                                }
+                                
+                                LaunchedEffect(currentLocation) {
+                                    quickMapCameraState.animate(
+                                        CameraUpdateFactory.newLatLngZoom(currentLocation, 15f),
+                                        durationMs = 500
+                                    )
+                                }
+                                
+                                GoogleMap(
+                                    modifier = Modifier.fillMaxSize(),
+                                    cameraPositionState = quickMapCameraState,
+                                    properties = mapProperties,
+                                    uiSettings = MapUiSettings(
+                                        zoomControlsEnabled = false,
+                                        myLocationButtonEnabled = false,
+                                        scrollGesturesEnabled = false,
+                                        zoomGesturesEnabled = false,
+                                        tiltGesturesEnabled = false,
+                                        rotationGesturesEnabled = false
+                                    )
+                                ) {
+                                    Marker(
+                                        state = MarkerState(position = currentLocation),
+                                        title = "Alarm Location"
+                                    )
+                                    Circle(
+                                        center = currentLocation,
+                                        radius = quickAlarmRadius.toDouble(),
+                                        strokeColor = MaterialTheme.colorScheme.tertiary,
+                                        fillColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f),
+                                        strokeWidth = 3f
+                                    )
+                                }
+                            }
+                        }
+                        
+                        // Right side - Controls
+                        Column(
+                            modifier = Modifier
+                                .weight(0.5f)
+                                .fillMaxHeight()
+                                .verticalScroll(rememberScrollState())
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // Search
+                            QuickSearchSection(
+                                onSearch = { query -> performQuickAlarmSearch(query) },
+                                onSuggestionClick = { suggestion -> performQuickAlarmSearch(suggestion) }
+                            )
+                            
+                            // Radius slider
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "Alert Radius",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Card(
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                                        )
+                                    ) {
+                                        Text(
+                                            "${quickAlarmRadius.toInt()}m",
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                                        )
+                                    }
+                                }
+                                
+                                Slider(
+                                    value = quickAlarmRadius,
+                                    onValueChange = onRadiusChange,
+                                    valueRange = 100f..500f,
+                                    steps = 7,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            
+                            // Info card
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("ℹ️", style = MaterialTheme.typography.bodySmall)
+                                    Column {
+                                        Text(
+                                            "Today only • $soundName",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                            
+                            // Action buttons
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                TextButton(
+                                    onClick = onDismiss,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Cancel", fontSize = 12.sp)
+                                }
+                                
+                                Button(
+                                    onClick = {
+                                        onConfirm(currentLocation, currentLocationName, quickAlarmRadius)
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Set", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Portrait layout - original stacked layout
+                    Column(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
                     // Header - ample padding
                     Column(
                         modifier = Modifier
@@ -1243,20 +1426,23 @@ fun QuickAlarmDialog(
                             Text("Set Alarm", fontWeight = FontWeight.Bold)
                         }
                     }
+                    }
                 }
                 
-                // SearchSection overlay - positioned on top of content
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .fillMaxWidth()
-                        .padding(horizontal = if (isWideScreen) 24.dp else 20.dp)
-                        .padding(top = if (isWideScreen) 84.dp else 76.dp) // Position below header
-                ) {
-                    QuickSearchSection(
-                        onSearch = { query -> performQuickAlarmSearch(query) },
-                        onSuggestionClick = { suggestion -> performQuickAlarmSearch(suggestion) }
-                    )
+                // SearchSection overlay - positioned on top of content (only for portrait)
+                if (!isLandscape || !isCompactHeight) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .padding(horizontal = if (isWideScreen) 24.dp else 20.dp)
+                            .padding(top = if (isWideScreen) 84.dp else 76.dp) // Position below header
+                    ) {
+                        QuickSearchSection(
+                            onSearch = { query -> performQuickAlarmSearch(query) },
+                            onSuggestionClick = { suggestion -> performQuickAlarmSearch(suggestion) }
+                        )
+                    }
                 }
             }
         }
@@ -1434,6 +1620,12 @@ fun EditLocationForm(
     onSliderActiveChange: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
+    
+    // Detect screen size for responsive layout
+    val configuration = LocalConfiguration.current
+    val screenHeight = configuration.screenHeightDp.dp
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val isCompactHeight = screenHeight < 400.dp || (isLandscape && screenHeight < 500.dp)
     val scrollState = rememberScrollState()
     val sliderInteractionSource = remember { MutableInteractionSource() }
     var sliderActive by remember { mutableStateOf(false) }
@@ -1485,12 +1677,16 @@ fun EditLocationForm(
             }
         }
     ) { active -> if (active) 0f else 1f }
+    
+    // Dynamic spacing based on screen size
+    val contentSpacing = if (isCompactHeight) 10.dp else 16.dp
+    val horizontalPadding = if (isCompactHeight) 12.dp else 16.dp
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .padding(horizontal = horizontalPadding),
+        verticalArrangement = Arrangement.spacedBy(contentSpacing)
     ) {
         // Upper content that collapses when slider is active
         Box(
@@ -1503,27 +1699,28 @@ fun EditLocationForm(
                     .fillMaxWidth()
                     .verticalScroll(scrollState)
                     .alpha(upperContentAlpha),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(if (isCompactHeight) 10.dp else 16.dp)
             ) {
                 Text(
                     "Set Alarm Location",
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = if (isCompactHeight) MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
 
                 OutlinedTextField(
                     value = viewModel.alarmName,
                     onValueChange = { viewModel.alarmName = it },
-                    label = { Text("Alarm Name") },
+                    label = { Text("Alarm Name", fontSize = if (isCompactHeight) 12.sp else 14.sp) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = if (isCompactHeight) 14.sp else 16.sp),
                     trailingIcon = if (viewModel.alarmName.isNotEmpty()) {
                         {
                             IconButton(onClick = { viewModel.alarmName = "" }) {
                                 Icon(
                                     imageVector = Icons.Default.Clear,
                                     contentDescription = "Clear",
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(if (isCompactHeight) 16.dp else 20.dp)
                                 )
                             }
                         }
@@ -1531,15 +1728,16 @@ fun EditLocationForm(
                 )
 
                 Column {
-                    Text("Active Days", fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(8.dp))
-                    EnhancedDaySelector(viewModel.selectedDays) { viewModel.selectedDays = it }
+                    Text("Active Days", fontWeight = FontWeight.SemiBold, fontSize = if (isCompactHeight) 13.sp else 14.sp)
+                    Spacer(Modifier.height(if (isCompactHeight) 4.dp else 8.dp))
+                    EnhancedDaySelector(viewModel.selectedDays, isCompact = isCompactHeight) { viewModel.selectedDays = it }
                 }
 
                 MapsPickerRow(
                     label = "Sound",
                     text = getMapRingtoneTitle(context, viewModel.alarmSoundUri),
-                    onClick = onPickRingtone
+                    onClick = onPickRingtone,
+                    isCompact = isCompactHeight
                 )
 
                 Row(
@@ -1547,11 +1745,12 @@ fun EditLocationForm(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Gentle wake-up", fontWeight = FontWeight.Medium)
+                        Text("Gentle wake-up", fontWeight = FontWeight.Medium, fontSize = if (isCompactHeight) 13.sp else 14.sp)
                         Text(
                             "Starts quiet, gets louder",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = if (isCompactHeight) 11.sp else 12.sp
                         )
                     }
                     Switch(
@@ -1565,9 +1764,9 @@ fun EditLocationForm(
         // Radius slider - STAYS IN POSITION, always visible
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(if (isCompactHeight) 4.dp else 8.dp)
         ) {
-            Text("Radius", fontWeight = FontWeight.SemiBold)
+            Text("Radius", fontWeight = FontWeight.SemiBold, fontSize = if (isCompactHeight) 13.sp else 14.sp)
             Slider(
                 value = viewModel.radius,
                 onValueChange = { viewModel.radius = it },
@@ -1575,7 +1774,7 @@ fun EditLocationForm(
                 interactionSource = sliderInteractionSource,
                 modifier = Modifier.fillMaxWidth()
             )
-            Text("${viewModel.radius.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
+            Text("${viewModel.radius.toInt()} meters", style = MaterialTheme.typography.bodyMedium, fontSize = if (isCompactHeight) 12.sp else 14.sp)
         }
 
         // Buttons - STAY IN POSITION for consistency
@@ -1583,33 +1782,33 @@ fun EditLocationForm(
             horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp)
+                .padding(vertical = if (isCompactHeight) 4.dp else 8.dp)
         ) {
             TextButton(
                 onClick = onCancel,
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
             ) {
-                Text("Remove")
+                Text("Remove", fontSize = if (isCompactHeight) 13.sp else 14.sp)
             }
             Button(onClick = onSave) {
-                Text("Save Alarm")
+                Text("Save Alarm", fontSize = if (isCompactHeight) 13.sp else 14.sp)
             }
         }
 
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(if (isCompactHeight) 16.dp else 32.dp))
     }
 }
 
 @Composable
-fun MapsPickerRow(label: String, text: String, onClick: () -> Unit) {
+fun MapsPickerRow(label: String, text: String, onClick: () -> Unit, isCompact: Boolean = false) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp)
+            .height(if (isCompact) 48.dp else 56.dp)
             .clip(RoundedCornerShape(4.dp))
             .clickable(onClick = onClick)
             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = if (isCompact) 12.dp else 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -1617,9 +1816,10 @@ fun MapsPickerRow(label: String, text: String, onClick: () -> Unit) {
             Text(
                 label,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = if (isCompact) 10.sp else 12.sp
             )
-            Text(text, fontWeight = FontWeight.SemiBold)
+            Text(text, fontWeight = FontWeight.SemiBold, fontSize = if (isCompact) 13.sp else 14.sp)
         }
         Icon(Icons.Default.ArrowDropDown, contentDescription = null)
     }

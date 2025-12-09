@@ -44,7 +44,7 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:excludeFromRecents="true"
-            android:theme="@style/Theme.LokAlert" />
+            android:theme="@style/Theme.LokAlert.Transparent" />
 
         <activity
             android:name=".MainActivity"

@@ -11,42 +11,75 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Notifications
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,136 +87,587 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.sqrt
+import kotlin.random.Random
+
+// ============================================================================
+// RESPONSIVE SIZING UTILITIES
+// ============================================================================
+
+enum class ScreenSizeClass {
+    COMPACT,    // Small phones (< 360dp width)
+    MEDIUM,     // Regular phones (360-400dp width)
+    EXPANDED,   // Large phones / small tablets (400-600dp width)
+    LARGE       // Tablets / foldables (600dp+ width)
+}
 
 @Composable
-fun OnboardingScreen(onFinished: () -> Unit) {
-    val pageCount = 5
+fun rememberScreenSizeClass(): ScreenSizeClass {
+    val configuration = LocalConfiguration.current
+    return when {
+        configuration.screenWidthDp < 360 -> ScreenSizeClass.COMPACT
+        configuration.screenWidthDp < 400 -> ScreenSizeClass.MEDIUM
+        configuration.screenWidthDp < 600 -> ScreenSizeClass.EXPANDED
+        else -> ScreenSizeClass.LARGE
+    }
+}
+
+// Responsive dimension helper
+@Composable
+fun responsivePadding(
+    compact: Int = 12,
+    medium: Int = 16,
+    expanded: Int = 20,
+    large: Int = 24
+): Int {
+    val screenSize = rememberScreenSizeClass()
+    return when (screenSize) {
+        ScreenSizeClass.COMPACT -> compact
+        ScreenSizeClass.MEDIUM -> medium
+        ScreenSizeClass.EXPANDED -> expanded
+        ScreenSizeClass.LARGE -> large
+    }
+}
+
+// Responsive font size multiplier
+@Composable
+fun fontSizeMultiplier(): Float {
+    val screenSize = rememberScreenSizeClass()
+    return when (screenSize) {
+        ScreenSizeClass.COMPACT -> 0.85f
+        ScreenSizeClass.MEDIUM -> 0.95f
+        ScreenSizeClass.EXPANDED -> 1f
+        ScreenSizeClass.LARGE -> 1.1f
+    }
+}
+
+// ============================================================================
+// DATA CLASSES FOR ONBOARDING CONTENT
+// ============================================================================
+
+data class OnboardingContent(
+    val title: String,
+    val subtitle: String,
+    val description: String,
+    val icon: ImageVector,
+    val tips: List<String> = emptyList(),
+    val whyNeeded: String = ""
+)
+
+// Enhanced content for each onboarding page
+fun getOnboardingContent(page: Int): OnboardingContent {
+    return when (page) {
+        0 -> OnboardingContent(
+            title = "Before We Start",
+            subtitle = "Quick Privacy Note",
+            description = "LokAlert processes all location data directly on your device. " +
+                    "Nothing is sent to external servers — your privacy is our priority.",
+            icon = Icons.Filled.Description,
+            tips = listOf(
+                "All data stays on your device",
+                "No external servers or tracking",
+                "You control your data completely"
+            ),
+            whyNeeded = "Please accept to continue using LokAlert."
+        )
+        1 -> OnboardingContent(
+            title = "Welcome to LokAlert",
+            subtitle = "Your Smart Location Companion",
+            description = "LokAlert is a geofence app that helps you never miss your destination. " +
+                    "Simply set a location on the map, and we'll alert you when you're nearby — " +
+                    "perfect for bus rides, train commutes, or any journey where you might doze off!",
+            icon = Icons.Filled.Home,
+            tips = listOf(
+                "Set alarms for any location on the map",
+                "Get loud alerts even when your screen is off",
+                "Works offline with downloadable maps",
+                "Customize alarm sounds and vibration intensity"
+            ),
+            whyNeeded = "No permissions needed for this step. Let's explore what LokAlert can do for you!"
+        )
+        2 -> OnboardingContent(
+            title = "Stay Notified",
+            subtitle = "Notifications & Alarm Permissions",
+            description = "To wake you up when you're near your destination, LokAlert needs permission to " +
+                    "send notifications and schedule alarms. Without these, we can't alert you!",
+            icon = Icons.Filled.Notifications,
+            tips = listOf(
+                "Notifications let us show alerts on your screen",
+                "Alarm permission ensures precise timing",
+                "Your alarms will ring even in silent mode",
+                "You control which sounds and vibrations to use"
+            ),
+            whyNeeded = "These permissions are essential — without them, LokAlert cannot alert you when you arrive at your destination."
+        )
+        3 -> OnboardingContent(
+            title = "Know Your Location",
+            subtitle = "Location Access Permission",
+            description = "LokAlert uses your GPS location to detect when you're approaching your saved destinations. " +
+                    "We only check your location when you have active alarms — your privacy matters to us!",
+            icon = Icons.Filled.Place,
+            tips = listOf(
+                "We only track location when alarms are active",
+                "Your location data stays on your device",
+                "No data is ever sent to external servers",
+                "Battery-efficient location monitoring"
+            ),
+            whyNeeded = "Location access is required for geofencing to work. Without it, we cannot detect when you're near your destination."
+        )
+        4 -> OnboardingContent(
+            title = "Display Alarms Anywhere",
+            subtitle = "Overlay Permission",
+            description = "This permission allows LokAlert to show a full-screen alarm even when your phone is locked " +
+                    "or you're using another app. It's like having a smart alarm clock that works everywhere!",
+            icon = Icons.Filled.Lock,
+            tips = listOf(
+                "Alarms appear over any app you're using",
+                "Works even when your phone is locked",
+                "Perfect for napping during commutes",
+                "Swipe to dismiss when you're ready"
+            ),
+            whyNeeded = "Without this permission, alarms may not show up on your lock screen, and you might miss your stop!"
+        )
+        5 -> OnboardingContent(
+            title = "Keep Running Smoothly",
+            subtitle = "Background Activity Permission",
+            description = "Android sometimes stops apps to save battery. This permission ensures LokAlert stays active " +
+                    "in the background so your alarms always trigger on time, even after hours of inactivity.",
+            icon = Icons.Filled.Settings,
+            tips = listOf(
+                "Prevents Android from stopping LokAlert",
+                "Ensures alarms work after long periods",
+                "Uses minimal battery — we're efficient!",
+                "Critical for reliable location monitoring"
+            ),
+            whyNeeded = "Without this, Android may stop LokAlert in the background, causing your alarms to not trigger."
+        )
+        6 -> OnboardingContent(
+            title = "One More Step",
+            subtitle = "Lock Screen Display",
+            description = "Your device needs an extra setting to show alarms on the lock screen. " +
+                    "This is a device-specific feature that requires manual enabling in your settings.",
+            icon = Icons.Rounded.Notifications,
+            tips = listOf(
+                "Required for lock screen alarms",
+                "One-time setup in device settings",
+                "Follow the simple steps below",
+                "Essential for full functionality"
+            ),
+            whyNeeded = "This device-specific setting ensures alarms can wake you up even when your phone is locked."
+        )
+        else -> OnboardingContent(
+            title = "Welcome",
+            subtitle = "",
+            description = "",
+            icon = Icons.Filled.Home
+        )
+    }
+}
+
+// ============================================================================
+// MAIN ONBOARDING SCREEN
+// ============================================================================
+
+@Composable
+fun OnboardingScreen(
+    onFinished: () -> Unit,
+    onPreloadMap: () -> Unit = {},
+    backgroundContent: @Composable () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    
+    // Detect foldable/wide screen (600dp or wider)
+    val isWideScreen = configuration.screenWidthDp >= 600
+    
+    // ========================================================================
+    // SPLASH SCREEN STATE AND ANIMATIONS
+    // ========================================================================
+    var showSplash by remember { mutableStateOf(true) }
+    var splashPhase by remember { mutableIntStateOf(0) } // 0=initial, 1=fade in, 2=hold, 3=morph, 4=done
+    
+    // Screen size for responsive splash
+    val screenSize = rememberScreenSizeClass()
+    val fontMultiplier = fontSizeMultiplier()
+    
+    // Splash animation values
+    val splashLogoAlpha by animateFloatAsState(
+        targetValue = when (splashPhase) {
+            0 -> 0f
+            1, 2, 3 -> 1f
+            else -> 1f
+        },
+        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        label = "splash_logo_alpha"
+    )
+    
+    val splashTextAlpha by animateFloatAsState(
+        targetValue = when (splashPhase) {
+            0, 1 -> 0f
+            2 -> 1f
+            3 -> 0f // Fade out tagline during morph
+            else -> 0f
+        },
+        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+        label = "splash_text_alpha"
+    )
+    
+    val splashTitleAlpha by animateFloatAsState(
+        targetValue = when (splashPhase) {
+            0 -> 0f
+            1, 2, 3 -> 1f
+            else -> 1f
+        },
+        animationSpec = tween(durationMillis = 500, delayMillis = 100, easing = FastOutSlowInEasing),
+        label = "splash_title_alpha"
+    )
+    
+    // Calculate target positions for morph animation
+    val splashLogoSize = when (screenSize) {
+        ScreenSizeClass.COMPACT -> 100.dp
+        ScreenSizeClass.MEDIUM -> 120.dp
+        ScreenSizeClass.EXPANDED -> 140.dp
+        ScreenSizeClass.LARGE -> 160.dp
+    }
+    
+    val targetLogoSize = if (isWideScreen) {
+        56.dp // Match foldable layout logo size
+    } else {
+        // Match RegularOnboardingPage: if (screenSize == ScreenSizeClass.COMPACT) 40.dp else 48.dp
+        if (screenSize == ScreenSizeClass.COMPACT) 40.dp else 48.dp
+    }
+    
+    // Morph progress (0 = center splash, 1 = final position)
+    val morphProgress by animateFloatAsState(
+        targetValue = if (splashPhase >= 3) 1f else 0f,
+        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        label = "morph_progress",
+        finishedListener = {
+            if (splashPhase == 3) {
+                splashPhase = 4
+                showSplash = false
+            }
+        }
+    )
+    
+    // Animated logo size during morph
+    val currentLogoSize by animateDpAsState(
+        targetValue = if (splashPhase >= 3) targetLogoSize else splashLogoSize,
+        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        label = "logo_size"
+    )
+    
+    // Animated title font size during morph
+    val splashTitleSize = when (screenSize) {
+        ScreenSizeClass.COMPACT -> 32.sp
+        ScreenSizeClass.MEDIUM -> 36.sp
+        ScreenSizeClass.EXPANDED -> 40.sp
+        ScreenSizeClass.LARGE -> 44.sp
+    }
+    
+    val targetTitleSize = when (screenSize) {
+        ScreenSizeClass.COMPACT -> 14.sp
+        ScreenSizeClass.MEDIUM -> 15.sp
+        ScreenSizeClass.EXPANDED -> 16.sp
+        ScreenSizeClass.LARGE -> 16.sp
+    }
+    
+    // Splash screen animation sequence
+    LaunchedEffect(Unit) {
+        // Phase 1: Fade in logo
+        splashPhase = 1
+        delay(600)
+        
+        // Phase 2: Show tagline
+        splashPhase = 2
+        delay(1200)
+        
+        // Phase 3: Morph to onboarding position
+        splashPhase = 3
+    }
+    
+    // ========================================================================
+    // SPLASH SCREEN DISPLAY
+    // ========================================================================
+    if (showSplash) {
+        // Full screen container
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            // Get dimensions for position calculations
+            val statusBarHeightDp = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+            val configuration = LocalConfiguration.current
+            val screenWidthDp = configuration.screenWidthDp.dp
+            val screenHeightDp = configuration.screenHeightDp.dp
+            
+            // Calculate horizontal padding based on screen size (matching RegularOnboardingPage)
+            val horizontalPadding = when (screenSize) {
+                ScreenSizeClass.COMPACT -> 12.dp
+                ScreenSizeClass.MEDIUM -> 16.dp
+                ScreenSizeClass.EXPANDED -> 20.dp
+                ScreenSizeClass.LARGE -> 24.dp
+            }
+            
+            // Current animated logo size
+            val currentLogoSizeDp = currentLogoSize
+            
+            // ================================================================
+            // TARGET POSITION (exact final position matching onboarding pages)
+            // ================================================================
+            // For REGULAR phone: matches RegularOnboardingPage layout
+            //   - .padding(horizontal = X, vertical = 8.dp).statusBarsPadding()
+            //   - Logo at: (horizontalPadding, statusBarHeight + 8.dp)
+            //
+            // For FOLDABLE: matches FoldableOnboardingPage layout
+            //   - Row.statusBarsPadding() -> Column.padding(24.dp)
+            //   - Logo at: (24.dp, statusBarHeight + 24.dp)
+            
+            val targetLeftPadding = if (isWideScreen) 24.dp else horizontalPadding
+            val targetTopPadding = if (isWideScreen) {
+                statusBarHeightDp + 24.dp
+            } else {
+                statusBarHeightDp + 8.dp
+            }
+            
+            // ================================================================
+            // INITIAL POSITION (splash centered on screen)
+            // ================================================================
+            val centeredLeftPadding = (screenWidthDp - currentLogoSizeDp) / 2
+            val centeredTopPadding = (screenHeightDp - currentLogoSizeDp) / 2 - 30.dp
+            
+            // ================================================================
+            // INTERPOLATE POSITION
+            // ================================================================
+            val currentLeftPadding = centeredLeftPadding + (targetLeftPadding - centeredLeftPadding) * morphProgress
+            val currentTopPadding = centeredTopPadding + (targetTopPadding - centeredTopPadding) * morphProgress
+            
+            // ================================================================
+            // RENDER SPLASH CONTENT using padding (matches onboarding layout style)
+            // ================================================================
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = currentLeftPadding, top = currentTopPadding)
+            ) {
+                if (morphProgress > 0.5f) {
+                    // ========================================================
+                    // HORIZONTAL LAYOUT (matches onboarding header exactly)
+                    // ========================================================
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.graphicsLayer { alpha = splashLogoAlpha }
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                            contentDescription = "LokAlert Logo",
+                            modifier = Modifier.size(currentLogoSizeDp)
+                        )
+                        Spacer(modifier = Modifier.width(if (isWideScreen) 8.dp else 6.dp))
+                        Column {
+                            Text(
+                                text = "LokAlert",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = with(density) {
+                                    val startSize = splashTitleSize.value
+                                    val endSize = if (isWideScreen) 22f else (16 * fontMultiplier)
+                                    (startSize + (endSize - startSize) * morphProgress).sp
+                                },
+                                modifier = Modifier.graphicsLayer { alpha = splashTitleAlpha }
+                            )
+                            // Subtitle for foldable
+                            if (isWideScreen && morphProgress > 0.7f) {
+                                Text(
+                                    text = "Location-Based Alarms",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.graphicsLayer { 
+                                        alpha = ((morphProgress - 0.7f) / 0.3f).coerceIn(0f, 1f) 
+                                    }
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // ========================================================
+                    // VERTICAL LAYOUT (initial splash)
+                    // ========================================================
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                            contentDescription = "LokAlert Logo",
+                            modifier = Modifier
+                                .size(currentLogoSizeDp)
+                                .graphicsLayer { alpha = splashLogoAlpha }
+                        )
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        Text(
+                            text = "LokAlert",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = with(density) {
+                                val startSize = splashTitleSize.value
+                                val endSize = if (isWideScreen) 22f else (16 * fontMultiplier)
+                                (startSize + (endSize - startSize) * morphProgress).sp
+                            },
+                            modifier = Modifier.graphicsLayer { alpha = splashTitleAlpha }
+                        )
+                        
+                        // Tagline
+                        if (morphProgress < 0.3f) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "Location-based Alarms",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = (16 * fontMultiplier).sp,
+                                modifier = Modifier.graphicsLayer { alpha = splashTextAlpha }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+    
+    // ========================================================================
+    // REST OF ONBOARDING (after splash)
+    // ========================================================================
+    
+    val isChineseRom = remember {
+        try {
+            val manufacturer = Build.MANUFACTURER?.lowercase() ?: ""
+            val brand = Build.BRAND?.lowercase() ?: ""
+            val fingerprint = Build.FINGERPRINT?.lowercase() ?: ""
+            val display = Build.DISPLAY?.lowercase() ?: ""
+        
+            manufacturer.contains("xiaomi") || manufacturer.contains("redmi") || manufacturer.contains("poco") ||
+            brand.contains("xiaomi") || brand.contains("redmi") || brand.contains("poco") ||
+            fingerprint.contains("miui") || display.contains("miui") ||
+            fingerprint.contains("hyperos") || display.contains("hyperos") ||
+            manufacturer.contains("oppo") || manufacturer.contains("realme") ||
+            brand.contains("oppo") || brand.contains("realme") ||
+            fingerprint.contains("coloros") || display.contains("coloros") ||
+            manufacturer.contains("oneplus") || brand.contains("oneplus") ||
+            fingerprint.contains("oxygenos") || display.contains("oxygenos") ||
+            manufacturer.contains("vivo") || brand.contains("vivo") ||
+            fingerprint.contains("originos") || display.contains("originos") ||
+            fingerprint.contains("funtouch") || display.contains("funtouch") ||
+            manufacturer.contains("huawei") || manufacturer.contains("honor") ||
+            brand.contains("huawei") || brand.contains("honor") ||
+            fingerprint.contains("emui") || display.contains("emui") ||
+            fingerprint.contains("harmonyos") || display.contains("harmonyos") ||
+            manufacturer.contains("meizu") || brand.contains("meizu") ||
+            fingerprint.contains("flyme") || display.contains("flyme") ||
+            manufacturer.contains("zte") || manufacturer.contains("nubia") ||
+            brand.contains("zte") || brand.contains("nubia") ||
+            manufacturer.contains("lenovo") || brand.contains("lenovo") ||
+            fingerprint.contains("zui") || display.contains("zui") ||
+            manufacturer.contains("samsung") || brand.contains("samsung")
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    val pageCount = if (isChineseRom) 7 else 6  // Added Terms & Conditions page
     val pagerState = rememberPagerState(pageCount = { pageCount })
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
 
-    // Track permissions for each page
-    var page1PermissionsGranted by remember { mutableStateOf(true) }
+    // Terms and Conditions acceptance state
+    var termsAccepted by remember { mutableStateOf(false) }
+    
+    var page1PermissionsGranted by remember { mutableStateOf(true) }  // Welcome page - always true
     var page2PermissionsGranted by remember { mutableStateOf(false) }
     var page3PermissionsGranted by remember { mutableStateOf(false) }
     var page4PermissionsGranted by remember { mutableStateOf(false) }
     var page5PermissionsGranted by remember { mutableStateOf(false) }
+    var page6PermissionsGranted by remember { mutableStateOf(false) }
+    var page7PermissionsGranted by remember { mutableStateOf(!isChineseRom) }
+    
+    var lockscreenPermissionAcknowledged by remember { mutableStateOf(false) }
 
-    // Mutable state for permission status that updates immediately
     var notificationGranted by remember {
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.POST_NOTIFICATIONS
-                ) == PackageManager.PERMISSION_GRANTED
-            } else {
-                true
-            }
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            } else true
         )
     }
 
     var locationGranted by remember {
         mutableStateOf(
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED &&
-                    ContextCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    ) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         )
     }
 
     var hasAlarmPermission by remember { mutableStateOf(checkAlarmPermission(context)) }
+    var batteryOptimizationIgnored by remember { mutableStateOf(checkBatteryOptimization(context)) }
+    var hasOverlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
 
-    var batteryOptimizationIgnored by remember { 
-        mutableStateOf(checkBatteryOptimization(context)) 
-    }
-    
-    var hasOverlayPermission by remember {
-        mutableStateOf(Settings.canDrawOverlays(context))
-    }
-
-    // Notification permission launcher
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { _ ->
-        // Update notification state immediately
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
         notificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            true
-        }
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        } else true
     }
 
-    // Location permissions launcher
-    val locationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
-        // Update location state immediately
-        locationGranted =
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED &&
-                    ContextCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    ) == PackageManager.PERMISSION_GRANTED
+    val locationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ ->
+        locationGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Listen to lifecycle changes to refresh permission status
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 hasAlarmPermission = checkAlarmPermission(context)
                 batteryOptimizationIgnored = checkBatteryOptimization(context)
                 hasOverlayPermission = Settings.canDrawOverlays(context)
-                // Also refresh other permissions on resume
                 notificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    ContextCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.POST_NOTIFICATIONS
-                    ) == PackageManager.PERMISSION_GRANTED
-                } else {
-                    true
-                }
-                locationGranted =
-                    ContextCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.ACCESS_FINE_LOCATION
-                    ) == PackageManager.PERMISSION_GRANTED &&
-                            ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.ACCESS_COARSE_LOCATION
-                            ) == PackageManager.PERMISSION_GRANTED
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                } else true
+                locationGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Update page permission status
     DisposableEffect(notificationGranted, hasAlarmPermission) {
-        page2PermissionsGranted = when {
+        page3PermissionsGranted = when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> notificationGranted && hasAlarmPermission
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> notificationGranted
             else -> true
@@ -191,349 +675,1042 @@ fun OnboardingScreen(onFinished: () -> Unit) {
         onDispose {}
     }
 
-    DisposableEffect(locationGranted) {
-        page3PermissionsGranted = locationGranted
+    DisposableEffect(locationGranted) { page4PermissionsGranted = locationGranted; onDispose {} }
+    DisposableEffect(hasOverlayPermission) { page5PermissionsGranted = hasOverlayPermission; onDispose {} }
+    DisposableEffect(batteryOptimizationIgnored) { page6PermissionsGranted = batteryOptimizationIgnored; onDispose {} }
+    DisposableEffect(lockscreenPermissionAcknowledged, isChineseRom) {
+        page7PermissionsGranted = if (isChineseRom) lockscreenPermissionAcknowledged else true
         onDispose {}
     }
 
-    DisposableEffect(hasOverlayPermission) {
-        page4PermissionsGranted = hasOverlayPermission
-        onDispose {}
-    }
-
-    DisposableEffect(batteryOptimizationIgnored) {
-        page5PermissionsGranted = batteryOptimizationIgnored
-        onDispose {}
-    }
-
-    // Determine if Next button should be enabled
     val isNextButtonEnabled = when (pagerState.currentPage) {
-        0 -> page1PermissionsGranted
-        1 -> page2PermissionsGranted
-        2 -> page3PermissionsGranted
-        3 -> page4PermissionsGranted
-        4 -> page5PermissionsGranted
+        0 -> termsAccepted  // Terms & Conditions - must accept
+        1 -> page1PermissionsGranted  // Welcome
+        2 -> page3PermissionsGranted  // Notifications
+        3 -> page4PermissionsGranted  // Location
+        4 -> page5PermissionsGranted  // Overlay
+        5 -> page6PermissionsGranted  // Battery
+        6 -> page7PermissionsGranted  // Lockscreen (Chinese ROM only)
         else -> false
     }
+    
+    // Fade transition state
+    var isTransitioning by remember { mutableStateOf(false) }
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (isTransitioning) 0f else 1f,
+        animationSpec = tween(durationMillis = 250),
+        label = "fade_transition"
+    )
+    
+    // Celebration screen state
+    var showCelebration by remember { mutableStateOf(false) }
+    var celebrationVisible by remember { mutableStateOf(false) }
+    var startCircularReveal by remember { mutableStateOf(false) }
+    
+    // Celebration fade-in animation
+    val celebrationAlpha by animateFloatAsState(
+        targetValue = if (celebrationVisible) 1f else 0f,
+        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+        label = "celebration_fade"
+    )
+    
+    // Preload map when celebration screen is about to show
+    LaunchedEffect(showCelebration) {
+        if (showCelebration) {
+            onPreloadMap()
+            // Small delay then fade in the celebration
+            delay(100)
+            celebrationVisible = true
+        }
+    }
+    
+    // Show celebration screen with confetti and circular reveal
+    if (showCelebration) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            CelebrationScreen(
+                onContinue = {
+                    startCircularReveal = true
+                },
+                startReveal = startCircularReveal,
+                onRevealComplete = onFinished,
+                backgroundContent = backgroundContent,
+                modifier = Modifier.graphicsLayer { alpha = celebrationAlpha }
+            )
+        }
+        return
+    }
+    
+    // Responsive bottom bar padding (screenSize already declared in splash section)
+    val bottomBarHorizontalPadding = responsivePadding(compact = 12, medium = 16, expanded = 20, large = 24)
+    val bottomBarVerticalPadding = responsivePadding(compact = 10, medium = 12, expanded = 14, large = 16)
 
     Scaffold(
         bottomBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp)
-                    .navigationBarsPadding(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 3.dp
             ) {
-                // Pager Indicators
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = bottomBarHorizontalPadding.dp, vertical = bottomBarVerticalPadding.dp)
+                        .navigationBarsPadding(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    repeat(pageCount) { iteration ->
-                        val isSelected = pagerState.currentPage == iteration
-                        val width by animateDpAsState(if (isSelected) 24.dp else 8.dp, label = "dot_width")
-                        val color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                    // Back button (hidden on first page)
+                    if (pagerState.currentPage > 0) {
+                        FilledTonalButton(
+                            enabled = !isTransitioning,
+                            onClick = {
+                                scope.launch {
+                                    isTransitioning = true
+                                    delay(250) // Wait for fade out
+                                    pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                                    delay(100)
+                                    isTransitioning = false
+                                }
+                            },
+                            contentPadding = PaddingValues(
+                                horizontal = if (screenSize == ScreenSizeClass.COMPACT) 14.dp else 20.dp,
+                                vertical = if (screenSize == ScreenSizeClass.COMPACT) 8.dp else 12.dp
+                            )
+                        ) {
+                            Text(
+                                text = "Back",
+                                fontWeight = FontWeight.Medium,
+                                fontSize = if (screenSize == ScreenSizeClass.COMPACT) 13.sp else 14.sp
+                            )
+                        }
+                    } else {
+                        // Spacer to maintain layout when Back button is hidden
+                        Spacer(modifier = Modifier.width(if (screenSize == ScreenSizeClass.COMPACT) 60.dp else 80.dp))
+                    }
+                    
+                    // Page indicators
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(if (screenSize == ScreenSizeClass.COMPACT) 4.dp else 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val dotSize = if (screenSize == ScreenSizeClass.COMPACT) 5.dp else 6.dp
+                        val expandedDotWidth = if (screenSize == ScreenSizeClass.COMPACT) 16.dp else 20.dp
+                        repeat(pageCount) { iteration ->
+                            val isSelected = pagerState.currentPage == iteration
+                            val width by animateDpAsState(if (isSelected) expandedDotWidth else dotSize, label = "dot_width")
+                            val color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                            Box(
+                                modifier = Modifier
+                                    .height(dotSize)
+                                    .width(width)
+                                    .clip(CircleShape)
+                                    .background(color)
+                            )
+                        }
+                    }
 
-                        Box(
-                            modifier = Modifier
-                                .height(8.dp)
-                                .width(width)
-                                .clip(CircleShape)
-                                .background(color)
+                    // Next/Finish button
+                    Button(
+                        enabled = isNextButtonEnabled && !isTransitioning,
+                        onClick = {
+                            if (pagerState.currentPage < pageCount - 1) {
+                                scope.launch {
+                                    isTransitioning = true
+                                    delay(250) // Wait for fade out
+                                    pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                                    delay(100)
+                                    isTransitioning = false
+                                }
+                            } else {
+                                // Fade out then show celebration screen
+                                scope.launch {
+                                    isTransitioning = true
+                                    delay(300) // Wait for fade out
+                                    showCelebration = true
+                                }
+                            }
+                        },
+                        contentPadding = PaddingValues(
+                            horizontal = if (screenSize == ScreenSizeClass.COMPACT) 16.dp else 24.dp,
+                            vertical = if (screenSize == ScreenSizeClass.COMPACT) 8.dp else 12.dp
+                        )
+                    ) {
+                        Text(
+                            text = if (pagerState.currentPage == pageCount - 1) "Get Started" else "Continue",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = if (screenSize == ScreenSizeClass.COMPACT) 13.sp else 14.sp
                         )
                     }
-                }
-
-                // Next / Finish Button
-                Button(
-                    enabled = isNextButtonEnabled,
-                    onClick = {
-                        if (pagerState.currentPage < pageCount - 1) {
-                            scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
-                        } else {
-                            onFinished()
-                        }
-                    },
-                    contentPadding = PaddingValues(horizontal = 24.dp)
-                ) {
-                    Text(if (pagerState.currentPage == pageCount - 1) "Get Started" else "Next")
                 }
             }
         }
     ) { paddingValues ->
-        HorizontalPager(
-            state = pagerState,
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-        ) { page ->
-            when (page) {
-                0 -> OnboardingPage(
-                    title = "Welcome to LokAlert",
-                    description = "Your intelligent companion for location-based alerts and timing.",
-                    icon = Icons.Filled.Home,
-                    content = {}
-                )
-                1 -> NotificationsAndAlarmsPage(
-                    notificationGranted = notificationGranted,
-                    hasAlarmPermission = hasAlarmPermission,
-                    onRequestNotificationPermission = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        }
-                    },
-                    onRequestAlarmPermission = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                                data = "package:${context.packageName}".toUri()
+        ) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = contentAlpha },
+                // Add smooth page transitions
+                pageSpacing = 16.dp,
+                // Disable swiping on ALL pages - user must use Continue button
+                userScrollEnabled = false
+            ) { page ->
+                val content = getOnboardingContent(page)
+            
+            // Permission action content for each page
+            val permissionContent: @Composable ColumnScope.() -> Unit = {
+                when (page) {
+                    0 -> TermsAndConditionsContent(
+                        isAccepted = termsAccepted,
+                        onAcceptChanged = { termsAccepted = it }
+                    )
+                    1 -> WelcomePermissionContent()
+                    2 -> NotificationPermissionContent(
+                        notificationGranted = notificationGranted,
+                        hasAlarmPermission = hasAlarmPermission,
+                        onRequestNotificationPermission = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                             }
-                            context.startActivity(intent)
+                        },
+                        onRequestAlarmPermission = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                    data = "package:${context.packageName}".toUri()
+                                })
+                            }
                         }
-                    }
-                )
-                2 -> LocationPage(
-                    locationGranted = locationGranted,
-                    onRequestLocationPermission = {
-                        locationPermissionLauncher.launch(
-                            arrayOf(
-                                Manifest.permission.ACCESS_FINE_LOCATION,
-                                Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                    3 -> LocationPermissionContent(
+                        locationGranted = locationGranted,
+                        onRequestLocationPermission = {
+                            locationPermissionLauncher.launch(
+                                arrayOf(
+                                    Manifest.permission.ACCESS_FINE_LOCATION,
+                                    Manifest.permission.ACCESS_COARSE_LOCATION
+                                )
                             )
-                        )
-                    }
-                )
-                3 -> OverlayPermissionPage(
-                    hasOverlayPermission = hasOverlayPermission,
-                    onRequestOverlayPermission = {
-                        val intent = Intent(
-                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:${context.packageName}")
-                        )
-                        context.startActivity(intent)
-                    }
-                )
-                4 -> BatteryOptimizationPage(
-                    isBatteryOptimizationIgnored = batteryOptimizationIgnored,
-                    onRequestBatteryOptimization = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                                data = Uri.parse("package:${context.packageName}")
+                        }
+                    )
+                    4 -> OverlayPermissionContent(
+                        hasOverlayPermission = hasOverlayPermission,
+                        onRequestOverlayPermission = {
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:${context.packageName}")
+                                )
+                            )
+                        }
+                    )
+                    5 -> BatteryPermissionContent(
+                        isBatteryOptimizationIgnored = batteryOptimizationIgnored,
+                        onRequestBatteryOptimization = {
+                            context.startActivity(
+                                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                }
+                            )
+                        }
+                    )
+                    6 -> if (isChineseRom) {
+                        LockscreenPermissionContent(
+                            isAcknowledged = lockscreenPermissionAcknowledged,
+                            onAcknowledge = { lockscreenPermissionAcknowledged = true },
+                            onOpenSettings = {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = Uri.parse("package:${context.packageName}")
+                                    }
+                                )
                             }
-                            context.startActivity(intent)
+                        )
+                    }
+                }
+            }
+            
+            if (isWideScreen) {
+                // Foldable/Wide screen layout: Left-Right partition
+                FoldableOnboardingPage(
+                    content = content,
+                    permissionContent = permissionContent
+                )
+            } else {
+                // Regular phone layout: Stacked
+                RegularOnboardingPage(
+                    content = content,
+                    permissionContent = permissionContent
+                )
+            }
+        }
+        }
+    }
+}
+
+// ============================================================================
+// FOLDABLE DEVICE LAYOUT (Left-Right Partition)
+// ============================================================================
+
+@Composable
+fun FoldableOnboardingPage(
+    content: OnboardingContent,
+    permissionContent: @Composable ColumnScope.() -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
+    ) {
+        // LEFT SIDE: Logo, App Name, Text Content
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
+        ) {
+            // Header: Logo and App Name
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                    contentDescription = "LokAlert Logo",
+                    modifier = Modifier.size(56.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "LokAlert",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Location-Based Alarms",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(20.dp))
+            
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+            )
+            
+            Spacer(modifier = Modifier.height(20.dp))
+            
+            // Page Title
+            Text(
+                text = content.title,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            
+            // Subtitle (if present)
+            if (content.subtitle.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = content.subtitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            // Description
+            Text(
+                text = content.description,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = 26.sp
+            )
+            
+            // Tips Card (if present)
+            if (content.tips.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(20.dp))
+                
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "What you should know:",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        content.tips.forEach { tip ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.Start
+                            ) {
+                                Text(
+                                    text = "•",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(end = 8.dp, top = 2.dp)
+                                )
+                                Text(
+                                    text = tip,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    lineHeight = 22.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
+                }
+            }
+            
+            // Why Needed Info Card (if present)
+            if (content.whyNeeded.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.Start
+                    ) {
+                        Text(
+                            text = "ℹ️",
+                            fontSize = 16.sp,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                        Text(
+                            text = content.whyNeeded,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            lineHeight = 18.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+            
+            // Push content to top, allow scrolling if needed
+            Spacer(modifier = Modifier.weight(1f))
+        }
+        
+        // Vertical Divider between columns
+        VerticalDivider(
+            modifier = Modifier
+                .fillMaxHeight()
+                .padding(vertical = 32.dp),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        )
+        
+        // RIGHT SIDE: Illustration and Permission Actions
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            // Page Icon/Illustration
+            Box(
+                modifier = Modifier
+                    .size(120.dp)
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = content.icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(64.dp),
+                    tint = MaterialTheme.colorScheme.primary
                 )
+            }
+            
+            Spacer(modifier = Modifier.height(28.dp))
+            
+            // Permission Actions Content
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                permissionContent()
             }
         }
     }
 }
 
+// ============================================================================
+// REGULAR PHONE LAYOUT (Stacked) - Responsive
+// ============================================================================
+
 @Composable
-fun OnboardingPage(
-    title: String,
-    description: String,
-    icon: ImageVector,
-    content: @Composable ColumnScope.() -> Unit
+fun RegularOnboardingPage(
+    content: OnboardingContent,
+    permissionContent: @Composable ColumnScope.() -> Unit
 ) {
+    val scrollState = rememberScrollState()
+    val screenSize = rememberScreenSizeClass()
+    val fontMultiplier = fontSizeMultiplier()
+    
+    // Responsive dimensions
+    val horizontalPadding = responsivePadding(compact = 12, medium = 16, expanded = 20, large = 24)
+    val verticalSpacing = responsivePadding(compact = 8, medium = 12, expanded = 16, large = 20)
+    val iconSize = when (screenSize) {
+        ScreenSizeClass.COMPACT -> 70.dp
+        ScreenSizeClass.MEDIUM -> 80.dp
+        ScreenSizeClass.EXPANDED -> 90.dp
+        ScreenSizeClass.LARGE -> 100.dp
+    }
+    val innerIconSize = when (screenSize) {
+        ScreenSizeClass.COMPACT -> 36.dp
+        ScreenSizeClass.MEDIUM -> 42.dp
+        ScreenSizeClass.EXPANDED -> 48.dp
+        ScreenSizeClass.LARGE -> 52.dp
+    }
+    
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(scrollState)
+            .padding(horizontal = horizontalPadding.dp, vertical = 8.dp)
+            .statusBarsPadding(),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // Logo and App Name at top - compact on small screens
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = (verticalSpacing / 2).dp)
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                contentDescription = "LokAlert Logo",
+                modifier = Modifier.size(if (screenSize == ScreenSizeClass.COMPACT) 40.dp else 48.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "LokAlert",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = (16 * fontMultiplier).sp
+            )
+        }
+        
+        Spacer(modifier = Modifier.height(verticalSpacing.dp))
+        
+        // Illustration/Icon
         Box(
             modifier = Modifier
-                .size(120.dp)
-                .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
+                .size(iconSize)
+                .background(
+                    MaterialTheme.colorScheme.secondaryContainer,
+                    CircleShape
+                ),
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = icon,
+                imageVector = content.icon,
                 contentDescription = null,
-                modifier = Modifier.size(64.dp),
+                modifier = Modifier.size(innerIconSize),
                 tint = MaterialTheme.colorScheme.onSecondaryContainer
             )
         }
-
-        Spacer(modifier = Modifier.height(32.dp))
-
+        
+        Spacer(modifier = Modifier.height(verticalSpacing.dp))
+        
+        // Title
         Text(
-            text = title,
-            style = MaterialTheme.typography.headlineMedium,
+            text = content.title,
+            style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurface
+            fontWeight = FontWeight.Bold,
+            fontSize = (22 * fontMultiplier).sp
         )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
+        
+        if (content.subtitle.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = content.subtitle,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                textAlign = TextAlign.Center,
+                fontSize = (14 * fontMultiplier).sp
+            )
+        }
+        
+        Spacer(modifier = Modifier.height((verticalSpacing / 2).dp))
+        
+        // Description
         Text(
-            text = description,
-            style = MaterialTheme.typography.bodyLarge,
+            text = content.description,
+            style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            lineHeight = (20 * fontMultiplier).sp,
+            fontSize = (14 * fontMultiplier).sp
         )
+        
+        // Tips section - more compact
+        if (content.tips.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(verticalSpacing.dp))
+            
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                    Text(
+                        text = "What you should know:",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = (13 * fontMultiplier).sp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    content.tips.forEach { tip ->
+                        Text(
+                            text = "• $tip",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(vertical = 1.dp),
+                            lineHeight = (16 * fontMultiplier).sp,
+                            fontSize = (12 * fontMultiplier).sp
+                        )
+                    }
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(verticalSpacing.dp))
+        
+        // Permission content
+        permissionContent()
+        
+        Spacer(modifier = Modifier.height(verticalSpacing.dp))
+    }
+}
 
-        Spacer(modifier = Modifier.height(32.dp))
+// ============================================================================
+// PERMISSION CONTENT COMPOSABLES
+// ============================================================================
 
-        content()
+@Composable
+fun ColumnScope.TermsAndConditionsContent(
+    isAccepted: Boolean,
+    onAcceptChanged: (Boolean) -> Unit
+) {
+    val screenSize = rememberScreenSizeClass()
+    val fontMultiplier = fontSizeMultiplier()
+    
+    // Privacy highlights card
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(
+                horizontal = if (screenSize == ScreenSizeClass.COMPACT) 12.dp else 16.dp,
+                vertical = if (screenSize == ScreenSizeClass.COMPACT) 10.dp else 14.dp
+            )
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = "🔒", fontSize = (18 * fontMultiplier).sp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Your Privacy Matters",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = (14 * fontMultiplier).sp
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Text(
+                text = "• All location data is processed on your device only\n" +
+                       "• We never send your data to external servers\n" +
+                       "• No tracking, no analytics, no data collection",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                lineHeight = (18 * fontMultiplier).sp,
+                fontSize = (12 * fontMultiplier).sp
+            )
+        }
+    }
+    
+    Spacer(modifier = Modifier.height(if (screenSize == ScreenSizeClass.COMPACT) 8.dp else 12.dp))
+    
+    // Disclaimer card
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(
+                horizontal = if (screenSize == ScreenSizeClass.COMPACT) 12.dp else 16.dp,
+                vertical = if (screenSize == ScreenSizeClass.COMPACT) 10.dp else 14.dp
+            )
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = "⚠️", fontSize = (16 * fontMultiplier).sp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Please Note",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = (13 * fontMultiplier).sp
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(6.dp))
+            
+            Text(
+                text = "LokAlert is a student project. While we've done our best to make it reliable, " +
+                       "we cannot guarantee the alarm will always trigger perfectly. " +
+                       "Please don't rely solely on this app for critical situations.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = (16 * fontMultiplier).sp,
+                fontSize = (11 * fontMultiplier).sp
+            )
+        }
+    }
+    
+    Spacer(modifier = Modifier.height(if (screenSize == ScreenSizeClass.COMPACT) 10.dp else 14.dp))
+    
+    // Acceptance checkbox - more compact
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (isAccepted) 
+                MaterialTheme.colorScheme.primaryContainer 
+            else 
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(
+                checked = isAccepted,
+                onCheckedChange = onAcceptChanged,
+                colors = CheckboxDefaults.colors(
+                    checkedColor = MaterialTheme.colorScheme.primary,
+                    uncheckedColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "I understand and agree to continue",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (isAccepted) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (isAccepted) 
+                    MaterialTheme.colorScheme.onPrimaryContainer 
+                else 
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = (13 * fontMultiplier).sp
+            )
+        }
     }
 }
 
 @Composable
-fun NotificationsAndAlarmsPage(
+fun ColumnScope.WelcomePermissionContent() {
+    Text(
+        text = "Ready to get started? Let's set up a few permissions to make LokAlert work perfectly for you.",
+        style = MaterialTheme.typography.bodyMedium,
+        textAlign = TextAlign.Center,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+@Composable
+fun ColumnScope.NotificationPermissionContent(
     notificationGranted: Boolean,
     hasAlarmPermission: Boolean,
     onRequestNotificationPermission: () -> Unit,
     onRequestAlarmPermission: () -> Unit
 ) {
-    OnboardingPage(
-        title = "Stay on Track",
-        description = "We need permissions to ring alarms and send you important notifications.",
-        icon = Icons.Rounded.Notifications
-    ) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            PermissionRequestCard(
-                title = "Notifications",
-                isGranted = notificationGranted,
-                onGrantClick = onRequestNotificationPermission
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-        }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        PermissionRequestCard(
+            title = "Notifications",
+            description = "Receive alerts when you're near your destination",
+            isGranted = notificationGranted,
+            onGrantClick = onRequestNotificationPermission
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+    }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            PermissionRequestCard(
-                title = "Exact Alarms",
-                isGranted = hasAlarmPermission,
-                onGrantClick = onRequestAlarmPermission
-            )
-        }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        PermissionRequestCard(
+            title = "Exact Alarms",
+            description = "Schedule precise location-based alarms",
+            isGranted = hasAlarmPermission,
+            onGrantClick = onRequestAlarmPermission
+        )
     }
 }
 
 @Composable
-fun LocationPage(
+fun ColumnScope.LocationPermissionContent(
     locationGranted: Boolean,
     onRequestLocationPermission: () -> Unit
 ) {
-    OnboardingPage(
-        title = "Enable Location",
-        description = "To show local alerts and map features, we need access to your location.",
-        icon = Icons.Rounded.LocationOn
+    PermissionRequestCard(
+        title = "Location Access",
+        description = "Required to detect when you're near saved places",
+        isGranted = locationGranted,
+        onGrantClick = onRequestLocationPermission
+    )
+    
+    Spacer(modifier = Modifier.height(12.dp))
+    
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+        ),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        PermissionRequestCard(
-            title = "Location Access",
-            isGranted = locationGranted,
-            onGrantClick = onRequestLocationPermission
-        )
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("🔒", fontSize = 18.sp)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Your privacy is protected. Location data never leaves your device.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
     }
 }
 
 @Composable
-fun OverlayPermissionPage(
+fun ColumnScope.OverlayPermissionContent(
     hasOverlayPermission: Boolean,
     onRequestOverlayPermission: () -> Unit
 ) {
-    val deviceManufacturer = Build.MANUFACTURER.lowercase()
-    val isOnePlus = deviceManufacturer.contains("oneplus")
+    val isOnePlus = Build.MANUFACTURER.lowercase().contains("oneplus")
     
-    OnboardingPage(
+    PermissionRequestCard(
         title = "Display Over Other Apps",
-        description = "Allow LokAlert to show alarm overlay on your screen, including lock screen.",
-        icon = Icons.Rounded.Notifications
-    ) {
-        PermissionRequestCard(
-            title = "Overlay Permission",
-            isGranted = hasOverlayPermission,
-            onGrantClick = onRequestOverlayPermission
-        )
-        
-        if (isOnePlus) {
-            Spacer(modifier = Modifier.height(16.dp))
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp)
-                ) {
-                    Text(
-                        text = "OnePlus/ColorOS Users:",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "You may need to enable 'Display on lockscreen' permission in Settings > Apps > LokAlert > Permissions for alarms to work on the lock screen.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                    )
-                }
+        description = "Show alarms on top of any screen",
+        isGranted = hasOverlayPermission,
+        onGrantClick = onRequestOverlayPermission
+    )
+    
+    if (isOnePlus) {
+        Spacer(modifier = Modifier.height(12.dp))
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = "OnePlus Users",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Also enable 'Display on lockscreen' in Settings > Apps > LokAlert > Permissions.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
             }
         }
     }
 }
 
 @Composable
-fun BatteryOptimizationPage(
+fun ColumnScope.BatteryPermissionContent(
     isBatteryOptimizationIgnored: Boolean,
     onRequestBatteryOptimization: () -> Unit
 ) {
-    val deviceManufacturer = Build.MANUFACTURER.lowercase()
-    val isXiaomi = deviceManufacturer.contains("xiaomi") || deviceManufacturer.contains("redmi") || deviceManufacturer.contains("poco")
+    val isXiaomi = Build.MANUFACTURER.lowercase().let { 
+        it.contains("xiaomi") || it.contains("redmi") || it.contains("poco") 
+    }
     
-    OnboardingPage(
-        title = "Battery Optimization",
-        description = "Disable battery optimization to ensure LokAlert runs reliably in the background.",
-        icon = Icons.Filled.FavoriteBorder
+    PermissionRequestCard(
+        title = "Unrestricted Battery",
+        description = "Keep LokAlert running in the background",
+        isGranted = isBatteryOptimizationIgnored,
+        onGrantClick = onRequestBatteryOptimization
+    )
+    
+    if (isXiaomi) {
+        Spacer(modifier = Modifier.height(12.dp))
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = "MIUI/HyperOS Users",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Also enable 'Autostart' and set Battery saver to 'No restrictions' for best results.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ColumnScope.LockscreenPermissionContent(
+    isAcknowledged: Boolean,
+    onAcknowledge: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    val deviceName = when {
+        Build.MANUFACTURER.lowercase().let { it.contains("xiaomi") || it.contains("redmi") || it.contains("poco") } -> "MIUI/HyperOS"
+        Build.MANUFACTURER.lowercase().let { it.contains("oppo") || it.contains("realme") } -> "ColorOS/Realme UI"
+        Build.MANUFACTURER.lowercase().contains("oneplus") -> "OxygenOS"
+        Build.MANUFACTURER.lowercase().contains("vivo") -> "OriginOS"
+        Build.MANUFACTURER.lowercase().let { it.contains("huawei") || it.contains("honor") } -> "EMUI/HarmonyOS"
+        Build.MANUFACTURER.lowercase().contains("samsung") -> "One UI"
+        else -> "your device"
+    }
+    
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        ),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        PermissionRequestCard(
-            title = "Disable Battery Optimization",
-            isGranted = isBatteryOptimizationIgnored,
-            onGrantClick = onRequestBatteryOptimization
-        )
-        
-        if (isXiaomi) {
-            Spacer(modifier = Modifier.height(16.dp))
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp)
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Steps for $deviceName:",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            val steps = listOf(
+                "Tap 'Open App Info' below",
+                "Find and tap 'Permissions'",
+                "Enable 'Display on lock screen'",
+                "Return here and tap 'Done'"
+            )
+            
+            steps.forEachIndexed { index, step ->
+                Row(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.Top
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .background(MaterialTheme.colorScheme.primary, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "${index + 1}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "For devices running MIUI/HyperOS:",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "For reliable alarms, please also:\n" +
-                               "1. Go to Settings > Apps > Manage apps > LokAlert\n" +
-                               "2. Enable 'Autostart'\n" +
-                               "3. Set Battery saver to 'No restrictions'\n" +
-                               "4. Lock the app in recent apps",
+                        text = step,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
                 }
             }
         }
     }
+    
+    Spacer(modifier = Modifier.height(16.dp))
+    
+    FilledTonalButton(
+        onClick = onOpenSettings,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text("Open App Info")
+    }
+    
+    Spacer(modifier = Modifier.height(12.dp))
+    
+    Button(
+        onClick = onAcknowledge,
+        enabled = !isAcknowledged,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        if (isAcknowledged) {
+            Icon(
+                imageVector = Icons.Rounded.CheckCircle,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        Text(if (isAcknowledged) "Done" else "I've Enabled It")
+    }
 }
+
+// ============================================================================
+// PERMISSION REQUEST CARD
+// ============================================================================
 
 @Composable
 fun PermissionRequestCard(
     title: String,
+    description: String = "",
     isGranted: Boolean,
     onGrantClick: () -> Unit
 ) {
@@ -553,22 +1730,39 @@ fun PermissionRequestCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
                 Icon(
                     imageVector = if (isGranted) Icons.Rounded.CheckCircle else Icons.Filled.FavoriteBorder,
                     contentDescription = null,
-                    tint = if (isGranted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = if (isGranted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp)
                 )
-                Spacer(modifier = Modifier.width(16.dp))
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1
+                    )
+                    if (description.isNotEmpty()) {
+                        Text(
+                            text = description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2
+                        )
+                    }
+                }
             }
-
             if (!isGranted) {
-                FilledTonalButton(onClick = onGrantClick) {
+                Spacer(modifier = Modifier.width(8.dp))
+                FilledTonalButton(
+                    onClick = onGrantClick,
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                ) {
                     Text("Allow")
                 }
             }
@@ -576,24 +1770,401 @@ fun PermissionRequestCard(
     }
 }
 
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
 fun checkAlarmPermission(context: Context): Boolean {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        alarmManager.canScheduleExactAlarms()
-    } else {
-        true
-    }
+        (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).canScheduleExactAlarms()
+    } else true
 }
 
 fun checkBatteryOptimization(context: Context): Boolean {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        powerManager.isIgnoringBatteryOptimizations(context.packageName)
-    } else {
-        true
-    }
+    return (context.getSystemService(Context.POWER_SERVICE) as PowerManager)
+        .isIgnoringBatteryOptimizations(context.packageName)
 }
 
-fun getDeviceManufacturer(): String {
-    return Build.MANUFACTURER
+// ============================================================================
+// CELEBRATION SCREEN WITH CONFETTI AND CIRCULAR REVEAL
+// ============================================================================
+
+data class ConfettiParticle(
+    var x: Float,
+    var y: Float,
+    val velocityX: Float,
+    val velocityY: Float,
+    val rotation: Float,
+    val rotationSpeed: Float,
+    val color: Color,
+    val size: Float,
+    val shape: Int // 0 = rectangle, 1 = circle, 2 = triangle
+)
+
+@Composable
+fun CelebrationScreen(
+    onContinue: () -> Unit,
+    startReveal: Boolean,
+    onRevealComplete: () -> Unit,
+    backgroundContent: @Composable () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val screenWidth = with(density) { configuration.screenWidthDp.dp.toPx() }
+    val screenHeight = with(density) { configuration.screenHeightDp.dp.toPx() }
+    
+    // Confetti particles
+    var particles by remember { mutableStateOf<List<ConfettiParticle>>(emptyList()) }
+    var showButton by remember { mutableStateOf(false) }
+    
+    // Confetti colors
+    val confettiColors = listOf(
+        Color(0xFFFF6B6B), // Red
+        Color(0xFF4ECDC4), // Teal
+        Color(0xFFFFE66D), // Yellow
+        Color(0xFF95E1D3), // Mint
+        Color(0xFFF38181), // Coral
+        Color(0xFFAA96DA), // Purple
+        Color(0xFF7BD3EA), // Sky blue
+        Color(0xFFFFB347), // Orange
+        Color(0xFFE91E63), // Pink
+        Color(0xFF00BCD4), // Cyan
+        Color(0xFFCDDC39)  // Lime
+    )
+    
+    // Initialize confetti particles
+    LaunchedEffect(Unit) {
+        // Create confetti particles from multiple points (like party poppers)
+        val newParticles = mutableListOf<ConfettiParticle>()
+        
+        // Left party popper (top-left)
+        repeat(50) {
+            newParticles.add(
+                ConfettiParticle(
+                    x = screenWidth * 0.15f,
+                    y = screenHeight * 0.25f,
+                    velocityX = Random.nextFloat() * 10f + 3f,
+                    velocityY = Random.nextFloat() * -15f - 5f,
+                    rotation = Random.nextFloat() * 360f,
+                    rotationSpeed = Random.nextFloat() * 12f - 6f,
+                    color = confettiColors.random(),
+                    size = Random.nextFloat() * 14f + 6f,
+                    shape = Random.nextInt(3)
+                )
+            )
+        }
+        
+        // Right party popper (top-right)
+        repeat(50) {
+            newParticles.add(
+                ConfettiParticle(
+                    x = screenWidth * 0.85f,
+                    y = screenHeight * 0.25f,
+                    velocityX = Random.nextFloat() * -10f - 3f,
+                    velocityY = Random.nextFloat() * -15f - 5f,
+                    rotation = Random.nextFloat() * 360f,
+                    rotationSpeed = Random.nextFloat() * 12f - 6f,
+                    color = confettiColors.random(),
+                    size = Random.nextFloat() * 14f + 6f,
+                    shape = Random.nextInt(3)
+                )
+            )
+        }
+        
+        // Center top burst
+        repeat(40) {
+            newParticles.add(
+                ConfettiParticle(
+                    x = screenWidth * 0.5f,
+                    y = screenHeight * 0.1f,
+                    velocityX = Random.nextFloat() * 16f - 8f,
+                    velocityY = Random.nextFloat() * 8f + 2f,
+                    rotation = Random.nextFloat() * 360f,
+                    rotationSpeed = Random.nextFloat() * 15f - 7.5f,
+                    color = confettiColors.random(),
+                    size = Random.nextFloat() * 12f + 5f,
+                    shape = Random.nextInt(3)
+                )
+            )
+        }
+        
+        // Left side cascade
+        repeat(30) {
+            newParticles.add(
+                ConfettiParticle(
+                    x = screenWidth * 0.05f,
+                    y = screenHeight * Random.nextFloat() * 0.5f,
+                    velocityX = Random.nextFloat() * 6f + 2f,
+                    velocityY = Random.nextFloat() * 4f - 2f,
+                    rotation = Random.nextFloat() * 360f,
+                    rotationSpeed = Random.nextFloat() * 8f - 4f,
+                    color = confettiColors.random(),
+                    size = Random.nextFloat() * 10f + 4f,
+                    shape = Random.nextInt(3)
+                )
+            )
+        }
+        
+        // Right side cascade
+        repeat(30) {
+            newParticles.add(
+                ConfettiParticle(
+                    x = screenWidth * 0.95f,
+                    y = screenHeight * Random.nextFloat() * 0.5f,
+                    velocityX = Random.nextFloat() * -6f - 2f,
+                    velocityY = Random.nextFloat() * 4f - 2f,
+                    rotation = Random.nextFloat() * 360f,
+                    rotationSpeed = Random.nextFloat() * 8f - 4f,
+                    color = confettiColors.random(),
+                    size = Random.nextFloat() * 10f + 4f,
+                    shape = Random.nextInt(3)
+                )
+            )
+        }
+        
+        particles = newParticles
+        
+        // Show button after a short delay
+        delay(800)
+        showButton = true
+    }
+    
+    // Animate confetti
+    LaunchedEffect(particles) {
+        while (particles.isNotEmpty()) {
+            delay(16) // ~60 FPS
+            particles = particles.map { particle ->
+                particle.copy(
+                    x = particle.x + particle.velocityX,
+                    y = particle.y + particle.velocityY + 2f, // gravity
+                    rotation = particle.rotation + particle.rotationSpeed
+                )
+            }.filter { it.y < screenHeight + 50 } // Remove particles that fall off screen
+        }
+    }
+    
+    // Circular reveal animation
+    val revealProgress = remember { Animatable(0f) }
+    
+    LaunchedEffect(startReveal) {
+        if (startReveal) {
+            revealProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 1200,
+                    easing = FastOutSlowInEasing
+                )
+            )
+            // Call onRevealComplete after animation
+            onRevealComplete()
+        }
+    }
+    
+    // Calculate max radius for circular reveal (diagonal of screen from center to corner)
+    // Multiply by 1.1 to ensure it fully covers the corners
+    val maxRadius = sqrt(screenWidth * screenWidth + screenHeight * screenHeight) / 2 * 1.1f
+    
+    // Fade alpha for background content that appears behind the reveal
+    val backgroundAlpha by animateFloatAsState(
+        targetValue = if (startReveal) 1f else 0f,
+        animationSpec = tween(durationMillis = 300),
+        label = "background_fade"
+    )
+    
+    Box(
+        modifier = modifier.fillMaxSize()
+    ) {
+        // Background content (main app) - rendered behind the celebration screen
+        // This is what gets revealed by the circular animation
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = backgroundAlpha }
+        ) {
+            backgroundContent()
+        }
+        
+        // Celebration screen content with circular reveal effect
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    compositingStrategy = CompositingStrategy.Offscreen
+                }
+                .drawWithContent {
+                    drawContent()
+                    // Draw a circle that "erases" the celebration content to reveal background
+                    if (startReveal) {
+                        drawCircle(
+                            color = Color.Transparent,
+                            radius = revealProgress.value * maxRadius,
+                            center = Offset(size.width / 2, size.height / 2),
+                            blendMode = BlendMode.Clear
+                        )
+                    }
+                }
+        ) {
+            // White background for celebration screen
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White)
+            )
+            
+            // Confetti canvas
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                particles.forEach { particle ->
+                    drawContext.canvas.save()
+                    drawContext.canvas.translate(particle.x, particle.y)
+                    drawContext.canvas.rotate(particle.rotation)
+                    
+                    when (particle.shape) {
+                        0 -> { // Rectangle
+                            drawRect(
+                                color = particle.color,
+                                topLeft = Offset(-particle.size / 2, -particle.size / 4),
+                                size = Size(particle.size, particle.size / 2)
+                            )
+                        }
+                        1 -> { // Circle
+                            drawCircle(
+                                color = particle.color,
+                                radius = particle.size / 2,
+                                center = Offset.Zero
+                            )
+                        }
+                        2 -> { // Small square
+                            drawRect(
+                                color = particle.color,
+                                topLeft = Offset(-particle.size / 3, -particle.size / 3),
+                                size = Size(particle.size / 1.5f, particle.size / 1.5f)
+                            )
+                        }
+                    }
+                    
+                    drawContext.canvas.restore()
+                }
+            }
+            
+            // Main content - Responsive
+            val screenSize = rememberScreenSizeClass()
+            val fontMultiplier = fontSizeMultiplier()
+            val contentPadding = responsivePadding(compact = 16, medium = 20, expanded = 28, large = 32)
+            val iconSize = when (screenSize) {
+                ScreenSizeClass.COMPACT -> 70.dp
+                ScreenSizeClass.MEDIUM -> 80.dp
+                ScreenSizeClass.EXPANDED -> 90.dp
+                ScreenSizeClass.LARGE -> 100.dp
+            }
+            val innerIconSize = when (screenSize) {
+                ScreenSizeClass.COMPACT -> 42.dp
+                ScreenSizeClass.MEDIUM -> 48.dp
+                ScreenSizeClass.EXPANDED -> 54.dp
+                ScreenSizeClass.LARGE -> 60.dp
+            }
+            val emojiSize = when (screenSize) {
+                ScreenSizeClass.COMPACT -> 44.sp
+                ScreenSizeClass.MEDIUM -> 52.sp
+                ScreenSizeClass.EXPANDED -> 58.sp
+                ScreenSizeClass.LARGE -> 64.sp
+            }
+            val verticalSpacing = when (screenSize) {
+                ScreenSizeClass.COMPACT -> 12.dp
+                ScreenSizeClass.MEDIUM -> 16.dp
+                ScreenSizeClass.EXPANDED -> 20.dp
+                ScreenSizeClass.LARGE -> 24.dp
+            }
+            
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(contentPadding.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                // Party popper emojis
+                Text(
+                    text = "🎉",
+                    fontSize = emojiSize
+                )
+                
+                Spacer(modifier = Modifier.height(verticalSpacing))
+                
+                // Checkmark icon
+                Box(
+                    modifier = Modifier
+                        .size(iconSize)
+                        .background(
+                            Color(0xFF4CAF50),
+                            CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.CheckCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(innerIconSize),
+                        tint = Color.White
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height((verticalSpacing.value * 1.3f).dp))
+                
+                // Title
+                Text(
+                    text = "You're All Set!",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    color = Color(0xFF333333),
+                    fontSize = (26 * fontMultiplier).sp
+                )
+                
+                Spacer(modifier = Modifier.height((verticalSpacing.value * 0.5f).dp))
+                
+                // Subtitle
+                Text(
+                    text = "All permissions granted!\nLokAlert is ready to go.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
+                    color = Color(0xFF666666),
+                    lineHeight = (22 * fontMultiplier).sp,
+                    fontSize = (15 * fontMultiplier).sp
+                )
+                
+                Spacer(modifier = Modifier.height((verticalSpacing.value * 2f).dp))
+                
+                // Continue button with fade-in animation
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showButton,
+                    enter = androidx.compose.animation.fadeIn(
+                        animationSpec = tween(500)
+                    )
+                ) {
+                    val buttonHeight = when (screenSize) {
+                        ScreenSizeClass.COMPACT -> 48.dp
+                        ScreenSizeClass.MEDIUM -> 52.dp
+                        else -> 56.dp
+                    }
+                    Button(
+                        onClick = onContinue,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(buttonHeight),
+                        shape = RoundedCornerShape(buttonHeight / 2),
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Text(
+                            text = "Let's Go! 🚀",
+                            fontSize = (16 * fontMultiplier).sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
