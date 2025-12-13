@@ -21,6 +21,7 @@ class MapsViewModel(application: Application) : AndroidViewModel(application) {
 
     var locationToFocus by mutableStateOf<LatLng?>(null)
     var editingAlarmId by mutableStateOf<Int?>(null) // Track which alarm is being edited
+    var pendingSearchQuery by mutableStateOf<String?>(null) // Search query to execute when Maps screen opens
 
     // Form State
     var markerPosition by mutableStateOf<LatLng?>(null)

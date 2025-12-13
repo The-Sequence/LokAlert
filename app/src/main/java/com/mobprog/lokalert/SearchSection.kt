@@ -14,7 +14,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
@@ -29,7 +35,9 @@ import com.google.android.libraries.places.api.net.FindAutocompletePredictionsRe
 @Composable
 fun SearchSection(
     onSearch: ((String) -> Unit)? = null,
-    onSuggestionClick: ((String) -> Unit)? = null
+    onSuggestionClick: ((String) -> Unit)? = null,
+    onSearchBarFocused: (() -> Unit)? = null,
+    onPositioned: ((Rect) -> Unit)? = null
 ) {
     var searchText by remember { mutableStateOf("") }
     var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -117,13 +125,30 @@ fun SearchSection(
             shadowElevation = 8.dp,
             shape = RoundedCornerShape(28.dp),
             color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .onGloballyPositioned { coordinates ->
+                    val position = coordinates.positionInWindow()
+                    val size = coordinates.size
+                    onPositioned?.invoke(
+                        Rect(
+                            offset = Offset(position.x, position.y),
+                            size = Size(size.width.toFloat(), size.height.toFloat())
+                        )
+                    )
+                }
         ) {
             Column {
                 OutlinedTextField(
                     value = searchText,
                     onValueChange = { searchText = it },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { focusState ->
+                            if (focusState.isFocused) {
+                                onSearchBarFocused?.invoke()
+                            }
+                        },
                     placeholder = { 
                         Text(
                             if (placesClient != null) "Search locations..." else "Search (Places API unavailable)",

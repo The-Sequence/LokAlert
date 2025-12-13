@@ -26,7 +26,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -37,14 +36,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -288,6 +283,114 @@ fun getOnboardingContent(page: Int): OnboardingContent {
 }
 
 // ============================================================================
+// ANIMATED ICON COMPONENT - SUBTLE CONTINUOUS ANIMATIONS
+// ============================================================================
+
+@Composable
+fun AnimatedIcon(
+    imageVector: ImageVector,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    tint: Color = MaterialTheme.colorScheme.primary
+) {
+    // Determine animation type based on icon
+    val animationType = when (imageVector) {
+        Icons.Filled.Notifications, Icons.Rounded.Notifications -> "bell" // Bell gentle swing
+        Icons.Filled.Place, Icons.Rounded.LocationOn -> "bounce" // Location pin gentle bounce
+        Icons.Filled.Lock -> "pulse" // Lock subtle pulse (no rotation!)
+        Icons.Filled.Settings -> "rotate" // Settings slow rotation
+        else -> "pulse" // Default subtle pulse
+    }
+    
+    // Create infinite transition for continuous but subtle animation
+    val infiniteTransition = rememberInfiniteTransition(label = "icon_animation")
+    
+    when (animationType) {
+        "bell" -> {
+            // Bell gentle swing (much smaller range, slower)
+            val rotation by infiniteTransition.animateFloat(
+                initialValue = -8f,
+                targetValue = 8f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(2000, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "bell_swing"
+            )
+            Icon(
+                imageVector = imageVector,
+                contentDescription = contentDescription,
+                modifier = modifier.graphicsLayer {
+                    rotationZ = rotation
+                },
+                tint = tint
+            )
+        }
+        "bounce" -> {
+            // Location pin gentle bounce (smaller distance, slower)
+            val offsetY by infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = -8f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1500, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "pin_bounce"
+            )
+            Icon(
+                imageVector = imageVector,
+                contentDescription = contentDescription,
+                modifier = modifier.graphicsLayer {
+                    translationY = offsetY
+                },
+                tint = tint
+            )
+        }
+        "rotate" -> {
+            // Settings very slow rotation (much slower than before)
+            val rotation by infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(8000, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "settings_rotation"
+            )
+            Icon(
+                imageVector = imageVector,
+                contentDescription = contentDescription,
+                modifier = modifier.graphicsLayer {
+                    rotationZ = rotation
+                },
+                tint = tint
+            )
+        }
+        "pulse" -> {
+            // Very subtle pulse (smaller scale change, slower)
+            val scale by infiniteTransition.animateFloat(
+                initialValue = 1f,
+                targetValue = 1.08f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(2000, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "icon_pulse"
+            )
+            Icon(
+                imageVector = imageVector,
+                contentDescription = contentDescription,
+                modifier = modifier.graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                },
+                tint = tint
+            )
+        }
+    }
+}
+
+// ============================================================================
 // MAIN ONBOARDING SCREEN
 // ============================================================================
 
@@ -308,254 +411,136 @@ fun OnboardingScreen(
     // SPLASH SCREEN STATE AND ANIMATIONS
     // ========================================================================
     var showSplash by remember { mutableStateOf(true) }
-    var splashPhase by remember { mutableIntStateOf(0) } // 0=initial, 1=fade in, 2=hold, 3=morph, 4=done
+    var splashPhase by remember { mutableIntStateOf(0) } // 0=initial, 1=fade in, 2=show content, 3=transition out
     
     // Screen size for responsive splash
     val screenSize = rememberScreenSizeClass()
     val fontMultiplier = fontSizeMultiplier()
     
-    // Splash animation values
+    // Splash animation values - Logo fade in with subtle pulse
     val splashLogoAlpha by animateFloatAsState(
         targetValue = when (splashPhase) {
             0 -> 0f
-            1, 2, 3 -> 1f
-            else -> 1f
+            1, 2 -> 1f
+            3 -> 0f
+            else -> 0f
         },
         animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
         label = "splash_logo_alpha"
+    )
+    
+    // Logo scale with subtle breathing effect
+    val splashLogoScale by animateFloatAsState(
+        targetValue = when (splashPhase) {
+            0 -> 0.8f
+            1, 2 -> 1f
+            3 -> 0.95f
+            else -> 1f
+        },
+        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        label = "splash_logo_scale"
     )
     
     val splashTextAlpha by animateFloatAsState(
         targetValue = when (splashPhase) {
             0, 1 -> 0f
             2 -> 1f
-            3 -> 0f // Fade out tagline during morph
+            3 -> 0f
             else -> 0f
         },
-        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
         label = "splash_text_alpha"
     )
     
-    val splashTitleAlpha by animateFloatAsState(
-        targetValue = when (splashPhase) {
-            0 -> 0f
-            1, 2, 3 -> 1f
-            else -> 1f
-        },
-        animationSpec = tween(durationMillis = 500, delayMillis = 100, easing = FastOutSlowInEasing),
-        label = "splash_title_alpha"
-    )
-    
-    // Calculate target positions for morph animation
-    val splashLogoSize = when (screenSize) {
-        ScreenSizeClass.COMPACT -> 100.dp
-        ScreenSizeClass.MEDIUM -> 120.dp
-        ScreenSizeClass.EXPANDED -> 140.dp
-        ScreenSizeClass.LARGE -> 160.dp
-    }
-    
-    val targetLogoSize = if (isWideScreen) {
-        56.dp // Match foldable layout logo size
-    } else {
-        // Match RegularOnboardingPage: if (screenSize == ScreenSizeClass.COMPACT) 40.dp else 48.dp
-        if (screenSize == ScreenSizeClass.COMPACT) 40.dp else 48.dp
-    }
-    
-    // Morph progress (0 = center splash, 1 = final position)
-    val morphProgress by animateFloatAsState(
-        targetValue = if (splashPhase >= 3) 1f else 0f,
-        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
-        label = "morph_progress",
+    // Simple fade out transition
+    val splashFadeOut by animateFloatAsState(
+        targetValue = if (splashPhase >= 3) 0f else 1f,
+        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
+        label = "splash_fade_out",
         finishedListener = {
             if (splashPhase == 3) {
-                splashPhase = 4
                 showSplash = false
             }
         }
     )
     
-    // Animated logo size during morph
-    val currentLogoSize by animateDpAsState(
-        targetValue = if (splashPhase >= 3) targetLogoSize else splashLogoSize,
-        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
-        label = "logo_size"
-    )
-    
-    // Animated title font size during morph
-    val splashTitleSize = when (screenSize) {
-        ScreenSizeClass.COMPACT -> 32.sp
-        ScreenSizeClass.MEDIUM -> 36.sp
-        ScreenSizeClass.EXPANDED -> 40.sp
-        ScreenSizeClass.LARGE -> 44.sp
-    }
-    
-    val targetTitleSize = when (screenSize) {
-        ScreenSizeClass.COMPACT -> 14.sp
-        ScreenSizeClass.MEDIUM -> 15.sp
-        ScreenSizeClass.EXPANDED -> 16.sp
-        ScreenSizeClass.LARGE -> 16.sp
+    // Calculate logo size for splash screen
+    val splashLogoSize = when (screenSize) {
+        ScreenSizeClass.COMPACT -> 120.dp
+        ScreenSizeClass.MEDIUM -> 140.dp
+        ScreenSizeClass.EXPANDED -> 160.dp
+        ScreenSizeClass.LARGE -> 180.dp
     }
     
     // Splash screen animation sequence
     LaunchedEffect(Unit) {
-        // Phase 1: Fade in logo
+        delay(100) // Small delay before starting
+        // Phase 1: Fade in logo with scale
         splashPhase = 1
-        delay(600)
+        delay(700)
         
         // Phase 2: Show tagline
         splashPhase = 2
-        delay(1200)
+        delay(1400)
         
-        // Phase 3: Morph to onboarding position
+        // Phase 3: Curtain transition out
         splashPhase = 3
     }
     
     // ========================================================================
-    // SPLASH SCREEN DISPLAY
+    // SPLASH SCREEN DISPLAY - SIMPLE FADE TRANSITION
     // ========================================================================
     if (showSplash) {
-        // Full screen container
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
+                .graphicsLayer { alpha = splashFadeOut },
+            contentAlignment = Alignment.Center
         ) {
-            // Get dimensions for position calculations
-            val statusBarHeightDp = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-            val configuration = LocalConfiguration.current
-            val screenWidthDp = configuration.screenWidthDp.dp
-            val screenHeightDp = configuration.screenHeightDp.dp
-            
-            // Calculate horizontal padding based on screen size (matching RegularOnboardingPage)
-            val horizontalPadding = when (screenSize) {
-                ScreenSizeClass.COMPACT -> 12.dp
-                ScreenSizeClass.MEDIUM -> 16.dp
-                ScreenSizeClass.EXPANDED -> 20.dp
-                ScreenSizeClass.LARGE -> 24.dp
-            }
-            
-            // Current animated logo size
-            val currentLogoSizeDp = currentLogoSize
-            
-            // ================================================================
-            // TARGET POSITION (exact final position matching onboarding pages)
-            // ================================================================
-            // For REGULAR phone: matches RegularOnboardingPage layout
-            //   - .padding(horizontal = X, vertical = 8.dp).statusBarsPadding()
-            //   - Logo at: (horizontalPadding, statusBarHeight + 8.dp)
-            //
-            // For FOLDABLE: matches FoldableOnboardingPage layout
-            //   - Row.statusBarsPadding() -> Column.padding(24.dp)
-            //   - Logo at: (24.dp, statusBarHeight + 24.dp)
-            
-            val targetLeftPadding = if (isWideScreen) 24.dp else horizontalPadding
-            val targetTopPadding = if (isWideScreen) {
-                statusBarHeightDp + 24.dp
-            } else {
-                statusBarHeightDp + 8.dp
-            }
-            
-            // ================================================================
-            // INITIAL POSITION (splash centered on screen)
-            // ================================================================
-            val centeredLeftPadding = (screenWidthDp - currentLogoSizeDp) / 2
-            val centeredTopPadding = (screenHeightDp - currentLogoSizeDp) / 2 - 30.dp
-            
-            // ================================================================
-            // INTERPOLATE POSITION
-            // ================================================================
-            val currentLeftPadding = centeredLeftPadding + (targetLeftPadding - centeredLeftPadding) * morphProgress
-            val currentTopPadding = centeredTopPadding + (targetTopPadding - centeredTopPadding) * morphProgress
-            
-            // ================================================================
-            // RENDER SPLASH CONTENT using padding (matches onboarding layout style)
-            // ================================================================
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(start = currentLeftPadding, top = currentTopPadding)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
-                if (morphProgress > 0.5f) {
-                    // ========================================================
-                    // HORIZONTAL LAYOUT (matches onboarding header exactly)
-                    // ========================================================
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.graphicsLayer { alpha = splashLogoAlpha }
-                    ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                            contentDescription = "LokAlert Logo",
-                            modifier = Modifier.size(currentLogoSizeDp)
-                        )
-                        Spacer(modifier = Modifier.width(if (isWideScreen) 8.dp else 6.dp))
-                        Column {
-                            Text(
-                                text = "LokAlert",
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = with(density) {
-                                    val startSize = splashTitleSize.value
-                                    val endSize = if (isWideScreen) 22f else (16 * fontMultiplier)
-                                    (startSize + (endSize - startSize) * morphProgress).sp
-                                },
-                                modifier = Modifier.graphicsLayer { alpha = splashTitleAlpha }
-                            )
-                            // Subtitle for foldable
-                            if (isWideScreen && morphProgress > 0.7f) {
-                                Text(
-                                    text = "Location-Based Alarms",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.graphicsLayer { 
-                                        alpha = ((morphProgress - 0.7f) / 0.3f).coerceIn(0f, 1f) 
-                                    }
-                                )
-                            }
+                // Animated logo with subtle pulse
+                Image(
+                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                    contentDescription = "LokAlert Logo",
+                    modifier = Modifier
+                        .size(splashLogoSize)
+                        .graphicsLayer { 
+                            alpha = splashLogoAlpha
+                            scaleX = splashLogoScale
+                            scaleY = splashLogoScale
                         }
-                    }
-                } else {
-                    // ========================================================
-                    // VERTICAL LAYOUT (initial splash)
-                    // ========================================================
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                            contentDescription = "LokAlert Logo",
-                            modifier = Modifier
-                                .size(currentLogoSizeDp)
-                                .graphicsLayer { alpha = splashLogoAlpha }
-                        )
-                        
-                        Spacer(modifier = Modifier.height(8.dp))
-                        
-                        Text(
-                            text = "LokAlert",
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = with(density) {
-                                val startSize = splashTitleSize.value
-                                val endSize = if (isWideScreen) 22f else (16 * fontMultiplier)
-                                (startSize + (endSize - startSize) * morphProgress).sp
-                            },
-                            modifier = Modifier.graphicsLayer { alpha = splashTitleAlpha }
-                        )
-                        
-                        // Tagline
-                        if (morphProgress < 0.3f) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Location-based Alarms",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = (16 * fontMultiplier).sp,
-                                modifier = Modifier.graphicsLayer { alpha = splashTextAlpha }
-                            )
-                        }
-                    }
-                }
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // App title
+                Text(
+                    text = "LokAlert",
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = when (screenSize) {
+                        ScreenSizeClass.COMPACT -> 36.sp
+                        ScreenSizeClass.MEDIUM -> 40.sp
+                        ScreenSizeClass.EXPANDED -> 44.sp
+                        ScreenSizeClass.LARGE -> 48.sp
+                    },
+                    modifier = Modifier.graphicsLayer { alpha = splashLogoAlpha }
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // Tagline with fade animation
+                Text(
+                    text = "Location-based Alarms",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = (18 * fontMultiplier).sp,
+                    modifier = Modifier.graphicsLayer { alpha = splashTextAlpha }
+                )
             }
         }
         return
@@ -698,7 +683,7 @@ fun OnboardingScreen(
     var isTransitioning by remember { mutableStateOf(false) }
     val contentAlpha by animateFloatAsState(
         targetValue = if (isTransitioning) 0f else 1f,
-        animationSpec = tween(durationMillis = 250),
+        animationSpec = tween(durationMillis = 150),
         label = "fade_transition"
     )
     
@@ -744,6 +729,21 @@ fun OnboardingScreen(
     val bottomBarHorizontalPadding = responsivePadding(compact = 12, medium = 16, expanded = 20, large = 24)
     val bottomBarVerticalPadding = responsivePadding(compact = 10, medium = 12, expanded = 14, large = 16)
 
+    // Simple fade-in animation for onboarding content
+    // Syncs with splash screen fade out (500ms splash fade out + 100ms delay)
+    val onboardingFadeIn by animateFloatAsState(
+        targetValue = 1f,
+        animationSpec = tween(durationMillis = 600, delayMillis = 100, easing = FastOutSlowInEasing),
+        label = "onboarding_fade_in"
+    )
+    
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer { 
+                alpha = onboardingFadeIn
+            }
+    ) {
     Scaffold(
         bottomBar = {
             Surface(
@@ -949,6 +949,7 @@ fun OnboardingScreen(
         }
         }
     }
+    } // End of entrance animation Box
 }
 
 // ============================================================================
@@ -1137,6 +1138,7 @@ fun FoldableOnboardingPage(
             verticalArrangement = Arrangement.Center
         ) {
             // Page Icon/Illustration
+            // Animated Icon Container
             Box(
                 modifier = Modifier
                     .size(120.dp)
@@ -1146,7 +1148,7 @@ fun FoldableOnboardingPage(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
+                AnimatedIcon(
                     imageVector = content.icon,
                     contentDescription = null,
                     modifier = Modifier.size(64.dp),
@@ -1240,7 +1242,7 @@ fun RegularOnboardingPage(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
+            AnimatedIcon(
                 imageVector = content.icon,
                 contentDescription = null,
                 modifier = Modifier.size(innerIconSize),
@@ -1608,12 +1610,146 @@ fun ColumnScope.BatteryPermissionContent(
     }
 }
 
+// Helper function to get Chinese ROM-specific settings intent
+fun getChineseRomSettingsIntent(context: Context, packageName: String): Intent {
+    val manufacturer = Build.MANUFACTURER.lowercase()
+    val brand = Build.BRAND.lowercase()
+    
+    return when {
+        // Xiaomi/Redmi/POCO - MIUI/HyperOS
+        manufacturer.contains("xiaomi") || manufacturer.contains("redmi") || manufacturer.contains("poco") ||
+        brand.contains("xiaomi") || brand.contains("redmi") || brand.contains("poco") -> {
+            try {
+                Intent().apply {
+                    component = android.content.ComponentName(
+                        "com.miui.securitycenter",
+                        "com.miui.permcenter.permissions.PermissionsEditorActivity"
+                    )
+                    putExtra("extra_pkgname", packageName)
+                }
+            } catch (e: Exception) {
+                // Fallback to app details
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+            }
+        }
+        
+        // OPPO/Realme - ColorOS
+        manufacturer.contains("oppo") || manufacturer.contains("realme") ||
+        brand.contains("oppo") || brand.contains("realme") -> {
+            try {
+                Intent().apply {
+                    component = android.content.ComponentName(
+                        "com.coloros.safecenter",
+                        "com.coloros.safecenter.permission.floatwindow.FloatWindowListActivity"
+                    )
+                }
+            } catch (e: Exception) {
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+            }
+        }
+        
+        // OnePlus - OxygenOS
+        manufacturer.contains("oneplus") || brand.contains("oneplus") -> {
+            try {
+                Intent().apply {
+                    component = android.content.ComponentName(
+                        "com.oneplus.security",
+                        "com.oneplus.security.chainlaunch.view.ChainLaunchAppListActivity"
+                    )
+                }
+            } catch (e: Exception) {
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+            }
+        }
+        
+        // Vivo - OriginOS/FuntouchOS
+        manufacturer.contains("vivo") || brand.contains("vivo") -> {
+            try {
+                Intent().apply {
+                    component = android.content.ComponentName(
+                        "com.vivo.permissionmanager",
+                        "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"
+                    )
+                }
+            } catch (e: Exception) {
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+            }
+        }
+        
+        // Huawei/Honor - EMUI/HarmonyOS
+        manufacturer.contains("huawei") || manufacturer.contains("honor") ||
+        brand.contains("huawei") || brand.contains("honor") -> {
+            try {
+                Intent().apply {
+                    component = android.content.ComponentName(
+                        "com.huawei.systemmanager",
+                        "com.huawei.permissionmanager.ui.MainActivity"
+                    )
+                }
+            } catch (e: Exception) {
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+            }
+        }
+        
+        // Samsung - One UI
+        manufacturer.contains("samsung") || brand.contains("samsung") -> {
+            try {
+                Intent().apply {
+                    component = android.content.ComponentName(
+                        "com.samsung.android.lool",
+                        "com.samsung.android.sm.ui.battery.BatteryActivity"
+                    )
+                }
+            } catch (e: Exception) {
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+            }
+        }
+        
+        // Meizu - Flyme
+        manufacturer.contains("meizu") || brand.contains("meizu") -> {
+            try {
+                Intent("com.meizu.safe.security.SHOW_APPSEC").apply {
+                    addCategory(Intent.CATEGORY_DEFAULT)
+                    putExtra("packageName", packageName)
+                }
+            } catch (e: Exception) {
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+            }
+        }
+        
+        // Default fallback
+        else -> {
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:$packageName")
+            }
+        }
+    }
+}
+
 @Composable
 fun ColumnScope.LockscreenPermissionContent(
     isAcknowledged: Boolean,
     onAcknowledge: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
+    val context = LocalContext.current
+    var showNotEnabledError by remember { mutableStateOf(false) }
+    var hasAttemptedValidation by remember { mutableStateOf(false) }
+    
     val deviceName = when {
         Build.MANUFACTURER.lowercase().let { it.contains("xiaomi") || it.contains("redmi") || it.contains("poco") } -> "MIUI/HyperOS"
         Build.MANUFACTURER.lowercase().let { it.contains("oppo") || it.contains("realme") } -> "ColorOS/Realme UI"
@@ -1622,6 +1758,58 @@ fun ColumnScope.LockscreenPermissionContent(
         Build.MANUFACTURER.lowercase().let { it.contains("huawei") || it.contains("honor") } -> "EMUI/HarmonyOS"
         Build.MANUFACTURER.lowercase().contains("samsung") -> "One UI"
         else -> "your device"
+    }
+    
+    // Get ROM-specific steps
+    val steps = when {
+        Build.MANUFACTURER.lowercase().let { it.contains("xiaomi") || it.contains("redmi") || it.contains("poco") } -> listOf(
+            "Tap 'Open Settings' below",
+            "Find and tap 'Other permissions'",
+            "Enable 'Display on lock screen'",
+            "Also enable 'Autostart' in MIUI settings",
+            "Return here and tap 'I've Enabled It'"
+        )
+        Build.MANUFACTURER.lowercase().let { it.contains("oppo") || it.contains("realme") } -> listOf(
+            "Tap 'Open Settings' below",
+            "Go to 'Permission management'",
+            "Enable 'Display on lock screen'",
+            "Enable 'Auto-start' in App management",
+            "Return here and tap 'I've Enabled It'"
+        )
+        Build.MANUFACTURER.lowercase().contains("oneplus") -> listOf(
+            "Tap 'Open Settings' below",
+            "Go to App info > Permissions",
+            "Enable 'Display on lock screen'",
+            "Also disable 'Background restrictions'",
+            "Return here and tap 'I've Enabled It'"
+        )
+        Build.MANUFACTURER.lowercase().contains("vivo") -> listOf(
+            "Tap 'Open Settings' below",
+            "Go to 'Permissions' > 'System permissions'",
+            "Enable 'Lock screen display'",
+            "Enable 'Background pop-up'",
+            "Return here and tap 'I've Enabled It'"
+        )
+        Build.MANUFACTURER.lowercase().let { it.contains("huawei") || it.contains("honor") } -> listOf(
+            "Tap 'Open Settings' below",
+            "Go to 'Permissions' > 'Special access'",
+            "Enable 'Lock screen notifications'",
+            "Also check 'App launch' settings",
+            "Return here and tap 'I've Enabled It'"
+        )
+        Build.MANUFACTURER.lowercase().contains("samsung") -> listOf(
+            "Tap 'Open Settings' below",
+            "Go to 'Battery and device care'",
+            "Tap 'Battery' > 'Background usage limits'",
+            "Add LokAlert to 'Never sleeping apps'",
+            "Return here and tap 'I've Enabled It'"
+        )
+        else -> listOf(
+            "Tap 'Open Settings' below",
+            "Find and tap 'Permissions'",
+            "Enable 'Display on lock screen'",
+            "Return here and tap 'I've Enabled It'"
+        )
     }
     
     Card(
@@ -1638,13 +1826,6 @@ fun ColumnScope.LockscreenPermissionContent(
                 color = MaterialTheme.colorScheme.onSecondaryContainer
             )
             Spacer(modifier = Modifier.height(12.dp))
-            
-            val steps = listOf(
-                "Tap 'Open App Info' below",
-                "Find and tap 'Permissions'",
-                "Enable 'Display on lock screen'",
-                "Return here and tap 'Done'"
-            )
             
             steps.forEachIndexed { index, step ->
                 Row(
@@ -1677,17 +1858,61 @@ fun ColumnScope.LockscreenPermissionContent(
     
     Spacer(modifier = Modifier.height(16.dp))
     
+    // Error message if user claims enabled but hasn't actually done it
+    if (showNotEnabledError) {
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("⚠️", fontSize = 18.sp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Please complete the steps above first. If you've already done this, tap the button again to continue.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+    
     FilledTonalButton(
-        onClick = onOpenSettings,
+        onClick = {
+            // Try ROM-specific settings first, fallback to app details
+            try {
+                val romIntent = getChineseRomSettingsIntent(context, context.packageName)
+                romIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(romIntent)
+            } catch (e: Exception) {
+                // Fallback to standard app details
+                onOpenSettings()
+            }
+        },
         modifier = Modifier.fillMaxWidth()
     ) {
-        Text("Open App Info")
+        Text("Open Settings")
     }
     
     Spacer(modifier = Modifier.height(12.dp))
     
     Button(
-        onClick = onAcknowledge,
+        onClick = {
+            if (!hasAttemptedValidation) {
+                // First attempt - show warning that they should have enabled it
+                hasAttemptedValidation = true
+                showNotEnabledError = true
+            } else {
+                // Second attempt - trust the user and proceed
+                showNotEnabledError = false
+                onAcknowledge()
+            }
+        },
         enabled = !isAcknowledged,
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -1966,9 +2191,10 @@ fun CelebrationScreen(
     val maxRadius = sqrt(screenWidth * screenWidth + screenHeight * screenHeight) / 2 * 1.1f
     
     // Fade alpha for background content that appears behind the reveal
+    // Only fade in when the reveal animation actually starts (not during celebration fade-in)
     val backgroundAlpha by animateFloatAsState(
-        targetValue = if (startReveal) 1f else 0f,
-        animationSpec = tween(durationMillis = 300),
+        targetValue = if (startReveal && revealProgress.value > 0.05f) 1f else 0f,
+        animationSpec = tween(durationMillis = 100),
         label = "background_fade"
     )
     

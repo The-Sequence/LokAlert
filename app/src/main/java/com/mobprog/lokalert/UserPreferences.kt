@@ -107,7 +107,7 @@ class AppPreferences(private val context: Context) {
     
     val darkMode: Flow<Int> = context.dataStore.data
         .map { preferences ->
-            preferences[DARK_MODE] ?: 0 // Default to Light
+            preferences[DARK_MODE] ?: 3 // Default to Auto (follows system)
         }
     
     val defaultAlarmSound: Flow<String> = context.dataStore.data

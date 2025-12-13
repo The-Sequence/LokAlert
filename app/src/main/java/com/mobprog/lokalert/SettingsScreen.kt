@@ -1274,6 +1274,68 @@ fun AlarmDisplayFullScreen(
 }
 
 // ============================================================================
+// THEME STYLE CARD (Square card with icon for theme options - like DismissStyleCard)
+// ============================================================================
+
+@Composable
+fun ThemeStyleCard(
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    icon: String,
+    label: String,
+    isCompact: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val cardHeight = if (isCompact) 80.dp else 100.dp
+    
+    Card(
+        modifier = modifier
+            .height(cardHeight)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected)
+                MaterialTheme.colorScheme.primaryContainer
+            else
+                MaterialTheme.colorScheme.surfaceVariant
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (isSelected) 4.dp else 1.dp
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            // Icon
+            Text(
+                text = icon,
+                fontSize = if (isCompact) 24.sp else 32.sp
+            )
+            
+            Spacer(modifier = Modifier.height(if (isCompact) 4.dp else 8.dp))
+            
+            // Label
+            Text(
+                text = label,
+                fontSize = if (isCompact) 12.sp else 14.sp,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                color = if (isSelected)
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                else
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+// ============================================================================
 // DISMISS STYLE CARD (Square card with icon for dismiss options)
 // ============================================================================
 
@@ -2679,6 +2741,7 @@ fun AppearanceSettingDetail(
     isCompact: Boolean = false
 ) {
     val darkModeValue by appPreferences.darkMode.collectAsState(initial = 0)
+    val isSystemDark = isSystemInDarkTheme()
     
     var showColorOptions by remember { mutableStateOf(false) }
     var selectedColorIndex by remember { mutableIntStateOf(3) }
@@ -2695,7 +2758,7 @@ fun AppearanceSettingDetail(
         "Red" to Color.Red,
         "Green" to Color.Green,
         "Blue" to Color.Blue,
-        "Mono" to if (isSystemInDarkTheme()) Color.White else Color.Black
+        "Mono" to if (isSystemDark) Color.White else Color.Black
     )
     val colorOptionKeys = colorOptions.keys.toList()
     
@@ -2715,7 +2778,7 @@ fun AppearanceSettingDetail(
         
         Spacer(modifier = Modifier.height(sectionSpacing))
         
-        // === THEME SECTION ===
+        // === THEME SECTION - Card style like How to Dismiss ===
         Text(
             text = "App Theme",
             fontSize = sectionTitleFontSize,
@@ -2723,22 +2786,41 @@ fun AppearanceSettingDetail(
         )
         Spacer(modifier = Modifier.height(if (isCompact) 10.dp else 14.dp))
         
+        // Theme options: Light (0), Dark (1), Auto (3)
+        // Note: 2 was AMOLED, now 3 is Auto following system
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(if (isCompact) 8.dp else 12.dp)
         ) {
-            listOf(0 to "Light", 1 to "Dark", 2 to "AMOLED").forEach { (mode, label) ->
-                FilterChip(
-                    selected = darkModeValue == mode,
-                    onClick = {
-                        scope.launch {
-                            appPreferences.setDarkMode(mode)
-                        }
-                    },
-                    label = { Text(label, fontSize = optionFontSize) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
+            // Light
+            ThemeStyleCard(
+                isSelected = darkModeValue == 0,
+                onClick = { scope.launch { appPreferences.setDarkMode(0) } },
+                icon = "☀️",
+                label = "Light",
+                isCompact = isCompact,
+                modifier = Modifier.weight(1f)
+            )
+            
+            // Dark
+            ThemeStyleCard(
+                isSelected = darkModeValue == 1,
+                onClick = { scope.launch { appPreferences.setDarkMode(1) } },
+                icon = "🌙",
+                label = "Dark",
+                isCompact = isCompact,
+                modifier = Modifier.weight(1f)
+            )
+            
+            // Auto
+            ThemeStyleCard(
+                isSelected = darkModeValue == 3,
+                onClick = { scope.launch { appPreferences.setDarkMode(3) } },
+                icon = "🔄",
+                label = "Auto",
+                isCompact = isCompact,
+                modifier = Modifier.weight(1f)
+            )
         }
         
         Spacer(modifier = Modifier.height(if (isCompact) 10.dp else 14.dp))
@@ -2747,8 +2829,8 @@ fun AppearanceSettingDetail(
             text = when (darkModeValue) {
                 0 -> "☀️ Bright theme for daytime use"
                 1 -> "🌙 Dark gray theme, easier on the eyes"
-                2 -> "⬛ True black for AMOLED screens"
-                else -> ""
+                3 -> "🔄 Follows your system theme setting"
+                else -> "🌙 Dark gray theme, easier on the eyes"
             },
             fontSize = subTextFontSize,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

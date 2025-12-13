@@ -136,17 +136,27 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun LokAlertTheme(
-    darkMode: Int = 0, // 0=Light, 1=Dark Gray, 2=Pitch Black
+    darkMode: Int = 0, // 0=Light, 1=Dark Gray, 2=Pitch Black (deprecated), 3=Auto
     dynamicColor: Boolean = true, // Disabled by default for consistent theming
     content: @Composable () -> Unit
 ) {
+    val isSystemDark = androidx.compose.foundation.isSystemInDarkTheme()
+    
+    // Resolve the effective dark mode
+    // Auto (3) follows system, 0=Light, 1=Dark Gray, 2=Pitch Black (treated as Dark Gray now)
+    val effectiveDarkMode = when (darkMode) {
+        3 -> if (isSystemDark) 1 else 0  // Auto: follow system
+        2 -> 1  // AMOLED deprecated, treat as dark gray
+        else -> darkMode
+    }
+    
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
-            if (darkMode > 0) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            if (effectiveDarkMode > 0) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-        darkMode == 2 -> PitchBlackColorScheme
-        darkMode == 1 -> DarkGrayColorScheme
+        effectiveDarkMode == 2 -> PitchBlackColorScheme  // Keep for any legacy references
+        effectiveDarkMode == 1 -> DarkGrayColorScheme
         else -> LightColorScheme
     }
     

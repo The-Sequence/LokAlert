@@ -16,7 +16,10 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector4D
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.TwoWayConverter
 import androidx.compose.foundation.Canvas
@@ -104,9 +107,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.consumeAllChanges
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
@@ -146,13 +151,13 @@ class MainActivity : ComponentActivity() {
             val isSystemInDarkTheme = isSystemInDarkTheme()
             val savedDarkMode by appPreferences.darkMode.collectAsState(initial = null)
             
-            // Use system theme on first launch, then user preference
-            val darkMode = savedDarkMode ?: if (isSystemInDarkTheme) 1 else 0
+            // Use Auto (3) on first launch which follows system theme
+            val darkMode = savedDarkMode ?: 3
             
-            // Save the initial theme based on system if not set
+            // Save the initial theme as Auto if not set
             LaunchedEffect(savedDarkMode) {
                 if (savedDarkMode == null) {
-                    appPreferences.setDarkMode(if (isSystemInDarkTheme) 1 else 0)
+                    appPreferences.setDarkMode(3) // Auto mode
                 }
             }
             
@@ -213,6 +218,12 @@ fun LokAlertAppEntryPoint() {
     
     // State to track if we should preload the main app
     var shouldPreloadMainApp by remember { mutableStateOf(false) }
+    
+    // Track if reveal animation completed - removes onboarding overlay
+    var revealCompleted by remember { mutableStateOf(false) }
+    
+    // Control when tour prompt should show (after reveal completes)
+    var enableTourPrompt by remember { mutableStateOf(false) }
 
     when {
         isOnboardingCompleted == null -> {
@@ -221,13 +232,19 @@ fun LokAlertAppEntryPoint() {
                 CircularProgressIndicator()
             }
         }
+        revealCompleted -> {
+            // After reveal: Show the app directly (same instance that was preloaded)
+            LaunchedEffect(Unit) {
+                LocationTrackingService.startService(context)
+            }
+            LokAlertApp(enableTourPromptImmediately = true)
+        }
         isOnboardingCompleted == false || !hasLocationPermission -> {
-            // Show onboarding if not completed OR if permissions not granted
+            // During onboarding: Show OnboardingScreen which handles preloading in backgroundContent
             OnboardingScreen(
                 onFinished = {
                     scope.launch { 
                         userPreferences.saveOnboardingCompleted()
-                        // Recheck permissions immediately after onboarding
                         hasLocationPermission = ContextCompat.checkSelfPermission(
                             context,
                             Manifest.permission.ACCESS_FINE_LOCATION
@@ -236,41 +253,39 @@ fun LokAlertAppEntryPoint() {
                             context,
                             Manifest.permission.ACCESS_COARSE_LOCATION
                         ) == PackageManager.PERMISSION_GRANTED
+                        
+                        // Mark reveal as completed - switches to showing app directly
+                        revealCompleted = true
+                        enableTourPrompt = true
                     }
                 },
                 onPreloadMap = {
-                    // Signal to preload the main app
                     shouldPreloadMainApp = true
                 },
                 backgroundContent = {
-                    // Render the main app behind onboarding for the circular reveal
-                    // Suppress tour prompt during preload
+                    // Preload the app INSIDE CelebrationScreen's backgroundContent
+                    // This is only visible through the circular reveal
                     if (shouldPreloadMainApp) {
-                        // Start foreground location tracking service
                         LaunchedEffect(Unit) {
                             LocationTrackingService.startService(context)
                         }
-                        LokAlertApp(suppressTourPrompt = true)
+                        LokAlertApp(enableTourPromptImmediately = false)
                     }
                 }
             )
         }
         else -> {
-            // Onboarding completed AND permissions granted
-            val context = LocalContext.current
-            
-            // Start foreground location tracking service
+            // Fresh launch with onboarding already completed
             LaunchedEffect(Unit) {
                 LocationTrackingService.startService(context)
             }
-            
             LokAlertApp()
         }
     }
 }
 
 @Composable
-fun LokAlertApp(suppressTourPrompt: Boolean = false) {
+fun LokAlertApp(enableTourPromptImmediately: Boolean = true) {
     var currentScreen by remember { mutableStateOf("Maps") }
     var titleColor by remember { mutableStateOf(Color(0xFF006DFF)) }
     var isRainbowEffectEnabled by remember { mutableStateOf(false) }
@@ -289,6 +304,7 @@ fun LokAlertApp(suppressTourPrompt: Boolean = false) {
     // Interactive tour action tracking
     var tourMapInteracted by remember { mutableStateOf(false) }
     var tourSearchInteracted by remember { mutableStateOf(false) }
+    var tourAlarmCreated by remember { mutableStateOf(false) }
     var allowMapInteraction by remember { mutableStateOf(false) }
     var allowSearchInteraction by remember { mutableStateOf(false) }
     
@@ -316,20 +332,25 @@ fun LokAlertApp(suppressTourPrompt: Boolean = false) {
     var searchBarBounds by remember { mutableStateOf<Rect?>(null) }
     var mapAreaBounds by remember { mutableStateOf<Rect?>(null) }
     var setPinButtonBounds by remember { mutableStateOf<Rect?>(null) }
+    var quickAlarmButtonBounds by remember { mutableStateOf<Rect?>(null) }
     
     // Show tour prompt after onboarding if not shown yet
-    LaunchedEffect(tourPromptShown) {
-        if (tourPromptShown == false) {
+    // BUT only if enableTourPromptImmediately is true
+    LaunchedEffect(tourPromptShown, enableTourPromptImmediately) {
+        if (tourPromptShown == false && enableTourPromptImmediately) {
             showTourPrompt = true
         }
     }
-    
+
     // Tour-controlled screen (overrides user selection during tour)
+    // Most steps should stay on current screen - only force screen for specific viewing steps
     val effectiveScreen = if (showGuidedTour) {
         when (tourStep) {
-            0, 1 -> currentScreen // Step 0-1: Stay on current screen
-            2, 3, 4 -> "Maps" // Step 2-4: Maps screen
-            5, 6 -> "Locations" // Step 5-6: Locations screen
+            0 -> currentScreen // Welcome - stay on current screen
+            1 -> currentScreen // User needs to TAP Alarms tab - stay on current screen
+            2 -> currentScreen // User needs to TAP Map tab - stay on current screen (should be on Locations)
+            3, 4, 5, 6 -> "Maps" // Interactive Map, Search Bar, Set Pin, Quick Alarm - force Maps screen
+            7 -> currentScreen // Final step - stay on current screen
             else -> currentScreen
         }
     } else {
@@ -432,13 +453,26 @@ fun LokAlertApp(suppressTourPrompt: Boolean = false) {
                                 }
                             },
                             viewModel = mapsViewModel,
-                            darkMode = darkMode
+                            darkMode = darkMode,
+                            onSetPinButtonPositioned = { setPinButtonBounds = it },
+                            onQuickAlarmButtonPositioned = { quickAlarmButtonBounds = it },
+                            onSearchBarPositioned = { searchBarBounds = it },
+                            onMapAreaPositioned = { mapAreaBounds = it },
+                            onMapMoved = { tourMapInteracted = true },
+                            onSearchBarTapped = { tourSearchInteracted = true },
+                            onAlarmCreated = { tourAlarmCreated = true }
                         )
                         "Locations" -> LocationsScreen(
                             recentSearches = recentSearches,
                             viewModel = mapsViewModel,
                             onViewOnMap = {
                                 // Switch to Map screen when "View on Map" is clicked in the sheet
+                                if (!showGuidedTour) currentScreen = "Maps"
+                            },
+                            onRecentSearchClick = { searchQuery ->
+                                // Set the search query in viewModel to trigger search when Maps screen opens
+                                mapsViewModel.pendingSearchQuery = searchQuery
+                                // Navigate to Maps screen
                                 if (!showGuidedTour) currentScreen = "Maps"
                             }
                         )
@@ -452,8 +486,8 @@ fun LokAlertApp(suppressTourPrompt: Boolean = false) {
             }
         }
         
-        // Tour Prompt Dialog (only when not suppressed - e.g., during preload)
-        if (showTourPrompt && !showGuidedTour && !showHelpIconSpotlight && !suppressTourPrompt) {
+        // Tour Prompt Dialog
+        if (showTourPrompt && !showGuidedTour && !showHelpIconSpotlight) {
             TourPromptDialog(
                 onStartTour = {
                     showTourPrompt = false
@@ -502,16 +536,22 @@ fun LokAlertApp(suppressTourPrompt: Boolean = false) {
                 searchBarBounds = searchBarBounds,
                 mapAreaBounds = mapAreaBounds,
                 setPinButtonBounds = setPinButtonBounds,
+                quickAlarmButtonBounds = quickAlarmButtonBounds,
                 currentScreen = currentScreen,
                 hasInteractedWithMap = tourMapInteracted,
                 hasInteractedWithSearch = tourSearchInteracted,
-                onNext = { tourStep++ },
+                hasCreatedAlarm = tourAlarmCreated,
+                onNext = { 
+                    tourAlarmCreated = false // Reset for next step
+                    tourStep++ 
+                },
                 onBack = { tourStep-- },
                 onFinish = { 
                     showGuidedTour = false
                     tourStep = 0
                     tourMapInteracted = false
                     tourSearchInteracted = false
+                    tourAlarmCreated = false
                     allowMapInteraction = false
                     allowSearchInteraction = false
                 },
@@ -1070,7 +1110,7 @@ fun HelpIconSpotlightOverlay(
 
 // Enum and data class for guided tour
 enum class BubblePosition {
-    ABOVE, BELOW, CENTER
+    ABOVE, BELOW, CENTER, BOTTOM
 }
 
 data class InteractiveTourStep(
@@ -1096,9 +1136,11 @@ fun GuidedTourOverlay(
     searchBarBounds: Rect?,
     mapAreaBounds: Rect?,
     setPinButtonBounds: Rect?,
+    quickAlarmButtonBounds: Rect?,
     currentScreen: String,
     hasInteractedWithMap: Boolean,
     hasInteractedWithSearch: Boolean,
+    hasCreatedAlarm: Boolean,
     onNext: () -> Unit,
     onBack: () -> Unit,
     onFinish: () -> Unit,
@@ -1120,50 +1162,60 @@ fun GuidedTourOverlay(
         InteractiveTourStep(
             title = "Try It: Go to Alarms 🔔",
             message = "Tap the 'Alarms' tab now to see your saved location alarms!",
-            spotlightBounds = locationsTabBounds,  // Highlight specific Alarms tab
+            spotlightBounds = locationsTabBounds,
             secondarySpotlightBounds = null,
             bubblePosition = BubblePosition.ABOVE,
-            useCircularSpotlight = false,
+            useCircularSpotlight = true,
             requiresAction = true,
             actionHint = "👆 Tap 'Alarms' tab"
         ),
         InteractiveTourStep(
             title = "Alarms Screen ✅",
             message = "Great! This is where all your location alarms are displayed. Now tap 'Map' to go back.",
-            spotlightBounds = mapTabBounds,  // Highlight specific Map tab
+            spotlightBounds = mapTabBounds,
             secondarySpotlightBounds = null,
             bubblePosition = BubblePosition.ABOVE,
-            useCircularSpotlight = false,
+            useCircularSpotlight = true,
             requiresAction = true,
             actionHint = "👆 Tap 'Map' tab"
         ),
         InteractiveTourStep(
-            title = "Map Screen 🗺️",
-            message = "This is your main workspace! Here you can search for places and set location alarms.",
-            spotlightBounds = mapTabBounds,
+            title = "Interactive Map 🗺️",
+            message = "Try moving the map around! Pan, zoom, or rotate to explore. This is how you'll navigate to find locations for your alarms.",
+            spotlightBounds = mapAreaBounds,
             secondarySpotlightBounds = null,
-            bubblePosition = BubblePosition.ABOVE,
-            useCircularSpotlight = false,
-            requiresAction = false,
-            actionHint = ""
+            bubblePosition = BubblePosition.BOTTOM,
+            useCircularSpotlight = true,
+            requiresAction = true,
+            actionHint = "👆 Move the map to continue"
         ),
         InteractiveTourStep(
             title = "Search Bar 🔍",
-            message = "Use this search bar to find any location. Type an address, place name, or landmark to search.",
+            message = "Tap the search bar to find any location. You can search for addresses, places, or landmarks!",
             spotlightBounds = searchBarBounds,
             secondarySpotlightBounds = null,
             bubblePosition = BubblePosition.BELOW,
-            useCircularSpotlight = false,
+            useCircularSpotlight = true,
+            requiresAction = true,
+            actionHint = "👆 Tap the search bar"
+        ),
+        InteractiveTourStep(
+            title = "Set Pin 📍",
+            message = "Tap 'Set Pin' to place a marker at the map center. You can then adjust the alarm radius and settings!",
+            spotlightBounds = setPinButtonBounds,
+            secondarySpotlightBounds = null,
+            bubblePosition = BubblePosition.ABOVE,
+            useCircularSpotlight = true,
             requiresAction = false,
             actionHint = ""
         ),
         InteractiveTourStep(
-            title = "Interactive Map",
-            message = "Long-press anywhere on the map to drop a pin. Then you can adjust the radius and save your alarm!",
-            spotlightBounds = mapAreaBounds,
+            title = "Quick Alarm ⚡",
+            message = "Tap 'Quick Alarm' to instantly create an alarm at the current location with default settings!",
+            spotlightBounds = quickAlarmButtonBounds,
             secondarySpotlightBounds = null,
-            bubblePosition = BubblePosition.CENTER,
-            useCircularSpotlight = false,
+            bubblePosition = BubblePosition.ABOVE,
+            useCircularSpotlight = true,
             requiresAction = false,
             actionHint = ""
         ),
@@ -1185,8 +1237,23 @@ fun GuidedTourOverlay(
     val isActionCompleted = when (step) {
         1 -> currentScreen == "Locations" || currentScreen == "Alarms" // User tapped Alarms tab
         2 -> currentScreen == "Maps"   // User tapped Map tab
-        else -> true // No action required
+        3 -> hasInteractedWithMap // User moved the map
+        4 -> hasInteractedWithSearch // User tapped the search bar
+        else -> true // No action required for other steps
     }
+    
+    // Pulsing animation for highlight border - using simpler approach
+    var pulsePhase by remember { mutableStateOf(0f) }
+    LaunchedEffect(currentTourStep.requiresAction && !isActionCompleted) {
+        if (currentTourStep.requiresAction && !isActionCompleted) {
+            while (true) {
+                pulsePhase = (pulsePhase + 0.05f) % (2f * 3.14159f)
+                kotlinx.coroutines.delay(30)
+            }
+        }
+    }
+    val pulseAlpha = (kotlin.math.sin(pulsePhase.toDouble()) * 0.3 + 0.7).toFloat()
+    val pulseScale = (kotlin.math.sin(pulsePhase.toDouble()) * 0.02 + 1.02).toFloat()
     
     Box(
         modifier = Modifier.fillMaxSize()
@@ -1202,7 +1269,7 @@ fun GuidedTourOverlay(
                 if (currentTourStep.useCircularSpotlight) {
                     val centerX = bounds.left + (bounds.right - bounds.left) / 2
                     val centerY = bounds.top + (bounds.bottom - bounds.top) / 2
-                    val radius = maxOf(bounds.width, bounds.height) / 2 + 8.dp.toPx()
+                    val radius = maxOf(bounds.width, bounds.height) / 2 + 12.dp.toPx()
                     
                     overlayPath.addOval(
                         Rect(
@@ -1211,13 +1278,14 @@ fun GuidedTourOverlay(
                         )
                     )
                 } else {
-                    val padding = 20.dp.toPx()
+                    // Rectangular spotlight with tighter padding
+                    val padding = 8.dp.toPx()
                     val spotlightRect = RoundRect(
                         left = bounds.left - padding,
                         top = bounds.top - padding,
                         right = bounds.right + padding,
                         bottom = bounds.bottom + padding,
-                        cornerRadius = CornerRadius(16.dp.toPx())
+                        cornerRadius = CornerRadius(12.dp.toPx())
                     )
                     
                     overlayPath.addRoundRect(spotlightRect)
@@ -1228,7 +1296,7 @@ fun GuidedTourOverlay(
                 if (currentTourStep.useCircularSpotlight) {
                     val centerX = bounds.left + (bounds.right - bounds.left) / 2
                     val centerY = bounds.top + (bounds.bottom - bounds.top) / 2
-                    val radius = maxOf(bounds.width, bounds.height) / 2 + 8.dp.toPx()
+                    val radius = maxOf(bounds.width, bounds.height) / 2 + 12.dp.toPx()
                     
                     overlayPath.addOval(
                         Rect(
@@ -1243,7 +1311,38 @@ fun GuidedTourOverlay(
                 path = overlayPath,
                 color = Color.Black.copy(alpha = 0.5f)
             )
+            
+            // Draw pulsing highlight border around spotlighted element
+            if (currentTourStep.requiresAction && !isActionCompleted) {
+                currentTourStep.spotlightBounds?.let { bounds ->
+                    if (currentTourStep.useCircularSpotlight) {
+                        val centerX = bounds.left + (bounds.right - bounds.left) / 2
+                        val centerY = bounds.top + (bounds.bottom - bounds.top) / 2
+                        val radius = (maxOf(bounds.width, bounds.height) / 2 + 16.dp.toPx()) * pulseScale
+                        
+                        drawCircle(
+                            color = Color(0xFF4CAF50).copy(alpha = pulseAlpha),
+                            radius = radius,
+                            center = Offset(centerX, centerY),
+                            style = Stroke(width = 4.dp.toPx())
+                        )
+                    } else {
+                        val padding = 12.dp.toPx() * pulseScale
+                        drawRoundRect(
+                            color = Color(0xFF4CAF50).copy(alpha = pulseAlpha),
+                            topLeft = Offset(bounds.left - padding, bounds.top - padding),
+                            size = androidx.compose.ui.geometry.Size(
+                                bounds.width + padding * 2,
+                                bounds.height + padding * 2
+                            ),
+                            cornerRadius = CornerRadius(16.dp.toPx()),
+                            style = Stroke(width = 4.dp.toPx())
+                        )
+                    }
+                }
+            }
         }
+        
         
         SpeechBubble(
             title = currentTourStep.title,
@@ -1340,6 +1439,14 @@ fun BoxScope.SpeechBubble(
                 .width(bubbleWidth)
                 .padding(horizontal = 16.dp)
                 .align(Alignment.Center)
+        }
+        BubblePosition.BOTTOM -> {
+            // Position bubble at bottom middle of screen, above the navigation bar
+            Modifier
+                .width(bubbleWidth)
+                .padding(horizontal = 16.dp)
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 100.dp)  // Above nav bar
         }
     }
     

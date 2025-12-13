@@ -2,6 +2,7 @@ package com.mobprog.lokalert
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -40,7 +41,8 @@ import kotlinx.coroutines.launch
 fun LocationsScreen(
     recentSearches: List<String>,
     onViewOnMap: () -> Unit,
-    viewModel: MapsViewModel
+    viewModel: MapsViewModel,
+    onRecentSearchClick: (String) -> Unit = {}
 ) {
     val savedLocations by viewModel.savedLocations.collectAsState()
     var showFavoritesOnly by remember { mutableStateOf(false) }
@@ -86,7 +88,10 @@ fun LocationsScreen(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                RecentSearchesSection(recentSearches = recentSearches)
+                RecentSearchesSection(
+                    recentSearches = recentSearches,
+                    onSearchClick = onRecentSearchClick
+                )
             }
             
             // Right Column: Saved Alarms
@@ -122,7 +127,10 @@ fun LocationsScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             // Recent Searches
-            RecentSearchesSection(recentSearches = recentSearches)
+            RecentSearchesSection(
+                recentSearches = recentSearches,
+                onSearchClick = onRecentSearchClick
+            )
             
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -184,7 +192,7 @@ fun LocationsScreen(
 // --- SUB-COMPONENTS ---
 
 @Composable
-fun RecentSearchesSection(recentSearches: List<String>) {
+fun RecentSearchesSection(recentSearches: List<String>, onSearchClick: (String) -> Unit = {}) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
             imageVector = Icons.Default.AccessTime,
@@ -219,7 +227,8 @@ fun RecentSearchesSection(recentSearches: List<String>) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp, horizontal = 4.dp),
+                        .padding(vertical = 8.dp, horizontal = 4.dp)
+                        .clickable { onSearchClick(location) },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(

@@ -9,6 +9,11 @@ import android.location.Geocoder
 import android.media.RingtoneManager
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -23,6 +28,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -84,7 +90,14 @@ fun MapsScreen(
     onNewSearch: (String) -> Unit,
     onDone: () -> Unit,
     viewModel: MapsViewModel = viewModel(),
-    darkMode: Int = 0 // 0=Light, 1=Dark Gray, 2=Pitch Black
+    darkMode: Int = 0, // 0=Light, 1=Dark Gray, 2=Pitch Black, 3=Auto
+    onSetPinButtonPositioned: (Rect) -> Unit = {},
+    onQuickAlarmButtonPositioned: (Rect) -> Unit = {},
+    onSearchBarPositioned: (Rect) -> Unit = {},
+    onMapAreaPositioned: (Rect) -> Unit = {},
+    onMapMoved: () -> Unit = {},
+    onSearchBarTapped: () -> Unit = {},
+    onAlarmCreated: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val appPreferences = remember { AppPreferences(context) }
@@ -129,11 +142,18 @@ fun MapsScreen(
     }
 
     // --- Map Style ---
-    // Use user's selected dark mode instead of system theme
-    val mapProperties = remember(hasLocationPermission, darkMode) {
+    // Resolve effective dark mode for map styling
+    // 0=Light, 1=Dark, 2=AMOLED (deprecated), 3=Auto (follow system)
+    val isSystemDark = isSystemInDarkTheme()
+    val effectiveMapDarkMode = when (darkMode) {
+        3 -> if (isSystemDark) 1 else 0  // Auto: follow system
+        2 -> 1  // AMOLED deprecated, treat as dark
+        else -> darkMode
+    }
+    val mapProperties = remember(hasLocationPermission, effectiveMapDarkMode) {
         MapProperties(
             isMyLocationEnabled = hasLocationPermission,
-            mapStyleOptions = if (darkMode > 0) MapStyleOptions.loadRawResourceStyle(context, R.raw.map_style_dark) else null
+            mapStyleOptions = if (effectiveMapDarkMode > 0) MapStyleOptions.loadRawResourceStyle(context, R.raw.map_style_dark) else null
         )
     }
     
@@ -1620,6 +1640,75 @@ fun EditLocationForm(
     onSliderActiveChange: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // Sound preview state
+    var isPlayingPreview by remember { mutableStateOf(false) }
+    var mediaPlayer by remember { mutableStateOf<android.media.MediaPlayer?>(null) }
+    // Clean up media player on dispose
+    DisposableEffect(Unit) {
+        onDispose {
+            mediaPlayer?.release()
+            mediaPlayer = null
+        }
+    }
+    // Play preview function
+    fun playPreviewSound() {
+        if (isPlayingPreview) {
+            mediaPlayer?.stop()
+            mediaPlayer?.release()
+            mediaPlayer = null
+            isPlayingPreview = false
+        } else {
+            try {
+                val uri = if (viewModel.alarmSoundUri.isNotEmpty()) {
+                    Uri.parse(viewModel.alarmSoundUri)
+                } else {
+                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                }
+                mediaPlayer = android.media.MediaPlayer().apply {
+                    setDataSource(context, uri)
+                    setAudioAttributes(
+                        android.media.AudioAttributes.Builder()
+                            .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                    )
+                    if (viewModel.isGradualVolume) {
+                        setVolume(0.2f, 0.2f)
+                    }
+                    prepare()
+                    start()
+                    setOnCompletionListener {
+                        isPlayingPreview = false
+                        release()
+                        mediaPlayer = null
+                    }
+                }
+                isPlayingPreview = true
+                if (viewModel.isGradualVolume) {
+                    scope.launch {
+                        var currentVolume = 0.2f
+                        while (isPlayingPreview && currentVolume < 1.0f) {
+                            kotlinx.coroutines.delay(500)
+                            currentVolume = (currentVolume + 0.1f).coerceAtMost(1.0f)
+                            try { mediaPlayer?.setVolume(currentVolume, currentVolume) } catch (_: Exception) { break }
+                        }
+                    }
+                }
+                scope.launch {
+                    kotlinx.coroutines.delay(5000)
+                    if (isPlayingPreview) {
+                        mediaPlayer?.stop()
+                        mediaPlayer?.release()
+                        mediaPlayer = null
+                        isPlayingPreview = false
+                    }
+                }
+            } catch (_: Exception) {
+                isPlayingPreview = false
+            }
+        }
+    }
     
     // Detect screen size for responsive layout
     val configuration = LocalConfiguration.current
@@ -1737,7 +1826,9 @@ fun EditLocationForm(
                     label = "Sound",
                     text = getMapRingtoneTitle(context, viewModel.alarmSoundUri),
                     onClick = onPickRingtone,
-                    isCompact = isCompactHeight
+                    isCompact = isCompactHeight,
+                    onPlayClick = { playPreviewSound() },
+                    isPlaying = isPlayingPreview
                 )
 
                 Row(
@@ -1800,7 +1891,14 @@ fun EditLocationForm(
 }
 
 @Composable
-fun MapsPickerRow(label: String, text: String, onClick: () -> Unit, isCompact: Boolean = false) {
+fun MapsPickerRow(
+    label: String,
+    text: String,
+    onClick: () -> Unit,
+    isCompact: Boolean = false,
+    onPlayClick: (() -> Unit)? = null,
+    isPlaying: Boolean = false
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1819,9 +1917,23 @@ fun MapsPickerRow(label: String, text: String, onClick: () -> Unit, isCompact: B
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = if (isCompact) 10.sp else 12.sp
             )
-            Text(text, fontWeight = FontWeight.SemiBold, fontSize = if (isCompact) 13.sp else 14.sp)
+            Text(text, fontWeight = FontWeight.SemiBold, fontSize = if (isCompact) 13.sp else 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (onPlayClick != null) {
+                TextButton(
+                    onClick = onPlayClick,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        if (isPlaying) "Stop" else "Preview",
+                        fontSize = if (isCompact) 12.sp else 14.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+        }
     }
 }
 
