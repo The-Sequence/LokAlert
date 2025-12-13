@@ -1185,7 +1185,7 @@ fun GuidedTourOverlay(
             spotlightBounds = mapAreaBounds,
             secondarySpotlightBounds = null,
             bubblePosition = BubblePosition.BOTTOM,
-            useCircularSpotlight = true,
+            useCircularSpotlight = false,
             requiresAction = true,
             actionHint = "👆 Move the map to continue"
         ),
@@ -1200,8 +1200,8 @@ fun GuidedTourOverlay(
             actionHint = "👆 Tap the search bar"
         ),
         InteractiveTourStep(
-            title = "Set Pin 📍",
-            message = "Tap 'Set Pin' to place a marker at the map center. You can then adjust the alarm radius and settings!",
+            title = "Edit Pin 📍",
+            message = "Tap 'Edit Pin' to place a marker at the map center. You can then adjust the alarm radius and settings!",
             spotlightBounds = setPinButtonBounds,
             secondarySpotlightBounds = null,
             bubblePosition = BubblePosition.ABOVE,

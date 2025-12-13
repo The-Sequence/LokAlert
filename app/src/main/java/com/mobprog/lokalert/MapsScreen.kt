@@ -369,6 +369,16 @@ fun MapsScreen(
                         }
                         viewModel.showBottomSheet = true
                     },
+                    modifier = Modifier.onGloballyPositioned { coordinates ->
+                        val position = coordinates.positionInWindow()
+                        val size = coordinates.size
+                        onSetPinButtonPositioned(
+                            Rect(
+                                offset = Offset(position.x, position.y),
+                                size = Size(size.width.toFloat(), size.height.toFloat())
+                            )
+                        )
+                    },
                     icon = { Icon(Icons.Filled.PushPin, "Set Pin") },
                     text = { Text(if (viewModel.markerPosition == null) "Set Pin" else "Edit Pin") }
                 )
@@ -399,6 +409,16 @@ fun MapsScreen(
                         
                         showQuickAlarm = true
                     },
+                    modifier = Modifier.onGloballyPositioned { coordinates ->
+                        val position = coordinates.positionInWindow()
+                        val size = coordinates.size
+                        onQuickAlarmButtonPositioned(
+                            Rect(
+                                offset = Offset(position.x, position.y),
+                                size = Size(size.width.toFloat(), size.height.toFloat())
+                            )
+                        )
+                    },
                     icon = { Text("⚡", fontSize = 20.sp) },
                     text = { Text("Quick Alarm") },
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
@@ -407,12 +427,33 @@ fun MapsScreen(
             }
         }
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .padding(padding)
+            .onGloballyPositioned { coordinates ->
+                // Report map area bounds for guided tour
+                val position = coordinates.positionInWindow()
+                val size = coordinates.size
+                onMapAreaPositioned(
+                    Rect(
+                        offset = Offset(position.x, position.y),
+                        size = Size(size.width.toFloat(), size.height.toFloat())
+                    )
+                )
+            }
+        ) {
             // Debug: Log that we're trying to render the map
             LaunchedEffect(Unit) {
                 android.util.Log.d("MapsScreen", "Attempting to render GoogleMap")
                 android.util.Log.d("MapsScreen", "Has location permission: $hasLocationPermission")
                 android.util.Log.d("MapsScreen", "Camera position: ${cameraPositionState.position}")
+            }
+            
+            // Track map movement for guided tour
+            LaunchedEffect(cameraPositionState.isMoving) {
+                if (cameraPositionState.isMoving) {
+                    onMapMoved()
+                }
             }
             
             // GoogleMap component
@@ -582,7 +623,9 @@ fun MapsScreen(
                 ) {
                     SearchSection(
                         onSearch = { query -> performSearch(query) },
-                        onSuggestionClick = { suggestion -> performSearch(suggestion) }
+                        onSuggestionClick = { suggestion -> performSearch(suggestion) },
+                        onSearchBarFocused = { onSearchBarTapped() },
+                        onPositioned = { bounds -> onSearchBarPositioned(bounds) }
                     )
                     
                     // Persistent pinned location info bar

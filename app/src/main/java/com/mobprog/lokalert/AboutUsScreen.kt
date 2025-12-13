@@ -276,8 +276,8 @@ fun FlappyAlertGame(onDismiss: () -> Unit) {
     var birdVelocity by remember { mutableFloatStateOf(0f) }
     val birdX = screenWidth * 0.2f
     val birdSize = 30f
-    val gravity = 2.0f  // Reduced - bird falls slower
-    val jumpVelocity = -20f  // Stronger jump
+    val gravity = 0.5f  // Reduced - bird falls slower
+    val jumpVelocity = -10f  // Stronger jump
     
     // Pipes - EASY MODE
     var pipes by remember { mutableStateOf(listOf<Pipe>()) }
