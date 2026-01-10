@@ -2065,19 +2065,73 @@ fun getReadableLocationName(address: android.location.Address): String {
 }
 
 /**
+ * Check if a string is a Plus Code (Open Location Code).
+ * Plus Codes have the format: 8FVC9G8F+5W or similar patterns with a + in them.
+ * This also matches Plus Codes with trailing city/region names like "9G8F+5W Singapore".
+ */
+fun isPlusCode(text: String): Boolean {
+    val trimmed = text.trim()
+    // Plus codes contain a '+' character
+    if (!trimmed.contains('+')) return false
+
+    // Extract the first "word" before any space/comma to check if it's the Plus Code part
+    val firstPart = trimmed.split(Regex("[\\s,]+")).firstOrNull() ?: return false
+
+    // Full Plus Code pattern (8 chars + 2+ chars): 8FVC9G8F+5W
+    val fullPlusCodePattern = Regex("^[2-9CFGHJMPQRVWX]{8}\\+[2-9CFGHJMPQRVWX]{2,}$", RegexOption.IGNORE_CASE)
+
+    // Short Plus Code pattern (4 chars + 2+ chars): 9G8F+5W (used with region)
+    val shortPlusCodePattern = Regex("^[2-9CFGHJMPQRVWX]{4,6}\\+[2-9CFGHJMPQRVWX]{2,}$", RegexOption.IGNORE_CASE)
+
+    // Check if the first part (before any space/comma) matches a Plus Code pattern
+    return fullPlusCodePattern.matches(firstPart) || shortPlusCodePattern.matches(firstPart)
+}
+
+/**
  * Generate a short, user-friendly alarm name from a location name.
  * Takes the most relevant 2-3 words.
+ * For Plus Codes, extracts only the city/region name (e.g., "9G8F+5W Singapore" -> "Singapore").
  */
 fun getShortAlarmName(locationName: String): String {
-    // Remove common words and split
+    val trimmed = locationName.trim()
+
+    // Check if it contains a Plus Code and extract the location part after it
+    if (trimmed.contains('+')) {
+        // Pattern to match Plus Code followed by optional location name
+        // Plus Code format: alphanumeric+alphanumeric, then optional space and location
+        val plusCodeWithLocation = Regex("^[A-Z0-9]{2,8}\\+[A-Z0-9]{2,}\\s*,?\\s*(.+)$", RegexOption.IGNORE_CASE)
+        val match = plusCodeWithLocation.find(trimmed)
+        if (match != null) {
+            // Extract the location part after the Plus Code
+            val locationPart = match.groupValues[1].trim()
+            if (locationPart.isNotBlank()) {
+                // Process the extracted location name
+                return extractShortName(locationPart)
+            }
+        }
+
+        // If it's just a Plus Code without a location name, return empty to let user input
+        if (isPlusCode(trimmed)) {
+            return ""
+        }
+    }
+
+    // Normal processing for non-Plus Code names
+    return extractShortName(trimmed)
+}
+
+/**
+ * Extract a short name from a location string by taking the most relevant 2-3 words.
+ */
+private fun extractShortName(locationName: String): String {
     val commonWords = setOf("the", "a", "an", "at", "in", "on", "near", "by")
     val words = locationName
         .split(" ", ",", "-", "/")
         .map { it.trim() }
-        .filter { it.isNotBlank() && it.lowercase() !in commonWords }
-    
+        .filter { it.isNotBlank() && it.lowercase() !in commonWords && !isPlusCode(it) }
+
     return when {
-        words.isEmpty() -> "Location Alarm"
+        words.isEmpty() -> ""
         words.size == 1 -> words[0]
         else -> words.take(2).joinToString(" ")
     }
