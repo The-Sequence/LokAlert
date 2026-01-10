@@ -198,7 +198,6 @@ fun getOnboardingContent(page: Int): OnboardingContent {
             tips = listOf(
                 "Set alarms for any location on the map",
                 "Get loud alerts even when your screen is off",
-                "Works offline with downloadable maps",
                 "Customize alarm sounds and vibration intensity"
             ),
             whyNeeded = "No permissions needed for this step. Let's explore what LokAlert can do for you!"

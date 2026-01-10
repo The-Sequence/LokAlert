@@ -319,9 +319,6 @@ fun LokAlertApp(enableTourPromptImmediately: Boolean = true) {
     val appPreferences = remember { AppPreferences(context) }
     val darkMode by appPreferences.darkMode.collectAsState(initial = 0)
     
-    // Get offline mode state
-    val isOfflineModeEnabled by appPreferences.offlineModeEnabled.collectAsState(initial = false)
-    
     // UI Element positions for spotlight
     var topBarBounds by remember { mutableStateOf<Rect?>(null) }
     var bottomNavBounds by remember { mutableStateOf<Rect?>(null) }
@@ -416,9 +413,8 @@ fun LokAlertApp(enableTourPromptImmediately: Boolean = true) {
                     onSettingsIconPositioned = { settingsIconBounds = it },
                     onTopBarPositioned = { topBarBounds = it },
                     showBackButton = effectiveScreen == "Settings",
-                    onBackClick = { currentScreen = "Maps" },
-                    isOfflineMode = isOfflineModeEnabled
-                ) 
+                    onBackClick = { currentScreen = "Maps" }
+                )
             },
             bottomBar = {
                 if (effectiveScreen != "Settings") {
@@ -589,8 +585,7 @@ fun TopBar(
     onSettingsIconPositioned: (Rect) -> Unit = {},
     onTopBarPositioned: (Rect) -> Unit = {},
     showBackButton: Boolean = false,
-    onBackClick: () -> Unit = {},
-    isOfflineMode: Boolean = false
+    onBackClick: () -> Unit = {}
 ) {
     var showHelpDialog by remember { mutableStateOf(false) }
 
@@ -653,47 +648,14 @@ fun TopBar(
             }
         }
         
-        // App Title with Mode Indicator (Center)
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
+        // App Title (Center)
+        Text(
+            text = "LokAlert",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            color = color,
             modifier = Modifier.align(Alignment.Center)
-        ) {
-            Text(
-                text = "LokAlert",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-                color = color
-            )
-            // Mode indicator badge
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-                modifier = Modifier
-                    .background(
-                        color = if (isOfflineMode) 
-                            MaterialTheme.colorScheme.tertiaryContainer 
-                        else 
-                            MaterialTheme.colorScheme.primaryContainer,
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .padding(horizontal = 8.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = if (isOfflineMode) "📴" else "🌐",
-                    fontSize = 10.sp
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = if (isOfflineMode) "Offline" else "Online",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = if (isOfflineMode)
-                        MaterialTheme.colorScheme.onTertiaryContainer
-                    else
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-        }
+        )
 
         // Settings Icon (Aligned Right)
         IconButton(
