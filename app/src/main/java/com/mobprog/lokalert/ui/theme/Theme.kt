@@ -2,176 +2,81 @@ package com.mobprog.lokalert.ui.theme
 
 import android.app.Activity
 import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-// Pitch Black (AMOLED) Color Scheme
-private val PitchBlackColorScheme = darkColorScheme(
-    primary = Color(0xFF90CAF9),
-    onPrimary = Color(0xFF000000),
-    primaryContainer = Color(0xFF1565C0),
-    onPrimaryContainer = Color(0xFFBBDEFB),
-    
-    secondary = Color(0xFFCE93D8),
-    onSecondary = Color(0xFF000000),
-    secondaryContainer = Color(0xFF6A1B9A),
-    onSecondaryContainer = Color(0xFFE1BEE7),
-    
-    tertiary = Color(0xFFF48FB1),
-    onTertiary = Color(0xFF000000),
-    tertiaryContainer = Color(0xFFC2185B),
-    onTertiaryContainer = Color(0xFFF8BBD0),
-    
-    error = Color(0xFFEF5350),
-    onError = Color(0xFF000000),
-    errorContainer = Color(0xFFB71C1C),
-    onErrorContainer = Color(0xFFFFCDD2),
-    
-    background = Color(0xFF000000), // Pure black
-    onBackground = Color(0xFFE0E0E0),
-    
-    surface = Color(0xFF000000), // Pure black
-    onSurface = Color(0xFFE0E0E0),
-    surfaceVariant = Color(0xFF0A0A0A),
-    onSurfaceVariant = Color(0xFFBDBDBD),
-    
-    outline = Color(0xFF424242),
-    outlineVariant = Color(0xFF212121),
-    
-    surfaceContainer = Color(0xFF0A0A0A),
-    surfaceContainerHigh = Color(0xFF121212),
-    surfaceContainerHighest = Color(0xFF1A1A1A),
-    surfaceContainerLow = Color(0xFF050505),
-    surfaceContainerLowest = Color(0xFF000000),
-)
-
-// Dark Gray Color Scheme - Softer dark theme (not as dark as AMOLED)
-private val DarkGrayColorScheme = darkColorScheme(
-    primary = Color(0xFF90CAF9),
-    onPrimary = Color(0xFF1A1A1A),
-    primaryContainer = Color(0xFF1976D2),
-    onPrimaryContainer = Color(0xFFBBDEFB),
-    
-    secondary = Color(0xFFCE93D8),
-    onSecondary = Color(0xFF1A1A1A),
-    secondaryContainer = Color(0xFF7B1FA2),
-    onSecondaryContainer = Color(0xFFE1BEE7),
-    
-    tertiary = Color(0xFFF48FB1),
-    onTertiary = Color(0xFF1A1A1A),
-    tertiaryContainer = Color(0xFFC2185B),
-    onTertiaryContainer = Color(0xFFF8BBD0),
-    
-    error = Color(0xFFEF5350),
-    onError = Color(0xFF1A1A1A),
-    errorContainer = Color(0xFFC62828),
-    onErrorContainer = Color(0xFFFFCDD2),
-    
-    background = Color(0xFF2D2D2D), // Medium dark gray
-    onBackground = Color(0xFFE8E8E8),
-    
-    surface = Color(0xFF2D2D2D), // Medium dark gray
-    onSurface = Color(0xFFE8E8E8),
-    surfaceVariant = Color(0xFF3A3A3A),
-    onSurfaceVariant = Color(0xFFC0C0C0),
-    
-    outline = Color(0xFF707070),
-    outlineVariant = Color(0xFF505050),
-    
-    surfaceContainer = Color(0xFF363636),
-    surfaceContainerHigh = Color(0xFF424242),
-    surfaceContainerHighest = Color(0xFF4D4D4D),
-    surfaceContainerLow = Color(0xFF303030),
-    surfaceContainerLowest = Color(0xFF252525),
-)
-
-private val LightColorScheme = lightColorScheme(
-    primary = Color(0xFF1976D2),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFBBDEFB),
-    onPrimaryContainer = Color(0xFF0D47A1),
-    
-    secondary = Color(0xFF7B1FA2),
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFFE1BEE7),
-    onSecondaryContainer = Color(0xFF4A148C),
-    
-    tertiary = Color(0xFFC2185B),
-    onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFF8BBD0),
-    onTertiaryContainer = Color(0xFF880E4F),
-    
-    error = Color(0xFFD32F2F),
-    onError = Color.White,
-    errorContainer = Color(0xFFFFCDD2),
-    onErrorContainer = Color(0xFFB71C1C),
-    
-    background = Color(0xFFFAFAFA),
-    onBackground = Color(0xFF1A1A1A),
-    
-    surface = Color.White,
-    onSurface = Color(0xFF1A1A1A),
-    surfaceVariant = Color(0xFFF5F5F5),
-    onSurfaceVariant = Color(0xFF616161),
-    
-    outline = Color(0xFFBDBDBD),
-    outlineVariant = Color(0xFFE0E0E0),
-    
-    surfaceContainer = Color(0xFFF5F5F5),
-    surfaceContainerHigh = Color(0xFFEEEEEE),
-    surfaceContainerHighest = Color(0xFFE0E0E0),
-    surfaceContainerLow = Color(0xFFFAFAFA),
-    surfaceContainerLowest = Color.White,
-)
-
+/**
+ * Main theme composable for LokAlert
+ * 
+ * @param darkMode 0=Light, 1=Dark, 3=Auto (follows system)
+ * @param themeType The theme style to use (Standard, Expressive, Ocean, etc.)
+ * @param designLanguage 0=Material3, 1=iOS6 Skeuomorphic
+ * @param dynamicColor Whether to use Android 12+ dynamic colors (overrides theme)
+ * @param content The composable content
+ */
 @Composable
 fun LokAlertTheme(
-    darkMode: Int = 0, // 0=Light, 1=Dark Gray, 2=Pitch Black (deprecated), 3=Auto
-    dynamicColor: Boolean = true, // Disabled by default for consistent theming
+    darkMode: Int = 3, // 0=Light, 1=Dark, 3=Auto
+    themeType: AppThemeType = AppThemeType.STANDARD,
+    designLanguage: Int = 0, // 0=Material3, 1=iOS6
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val isSystemDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val isSystemDark = isSystemInDarkTheme()
     
     // Resolve the effective dark mode
-    // Auto (3) follows system, 0=Light, 1=Dark Gray, 2=Pitch Black (treated as Dark Gray now)
-    val effectiveDarkMode = when (darkMode) {
-        3 -> if (isSystemDark) 1 else 0  // Auto: follow system
-        2 -> 1  // AMOLED deprecated, treat as dark gray
-        else -> darkMode
+    val isDark = when (darkMode) {
+        3 -> isSystemDark  // Auto: follow system
+        1 -> true          // Dark mode
+        else -> false      // Light mode (0 or any other value)
     }
     
+    // For iOS 6 style, we override with a specific color scheme
     val colorScheme = when {
+        // iOS 6 design language uses its own color scheme
+        designLanguage == 1 -> if (isDark) iOS6DarkColorScheme else iOS6LightColorScheme
+        // Use dynamic color if enabled and on Android 12+
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
-            if (effectiveDarkMode > 0) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-        effectiveDarkMode == 2 -> PitchBlackColorScheme  // Keep for any legacy references
-        effectiveDarkMode == 1 -> DarkGrayColorScheme
-        else -> LightColorScheme
+        // Otherwise use the selected theme
+        else -> getColorScheme(themeType, isDark)
     }
+    
+    // Determine design language enum
+    val designLang = if (designLanguage == 1) DesignLanguage.IOS6_SKEUOMORPHIC else DesignLanguage.MATERIAL3
     
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.background.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkMode == 0
+            // iOS 6 style uses blue navigation bar, so status bar should be different
+            window.statusBarColor = if (designLanguage == 1) {
+                iOS6Colors.NavBarGradientTop.toArgb()
+            } else {
+                colorScheme.background.toArgb()
+            }
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = 
+                if (designLanguage == 1) false else !isDark
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
-    )
+    // Provide the design language via CompositionLocal
+    CompositionLocalProvider(LocalDesignLanguage provides designLang) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = if (designLanguage == 1) iOS6Typography else Typography,
+            content = content
+        )
+    }
 }

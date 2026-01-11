@@ -1,0 +1,58 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- iOS 6 Skeuomorphic Background -->
+    <!-- Classic iOS 6 linen/metal texture with glossy overlay -->
+    
+    <!-- Base gradient - dark blue to lighter blue (iOS 6 style) -->
+    <path
+        android:fillColor="#1A3A5C"
+        android:pathData="M0,0 L108,0 L108,108 L0,108 Z" />
+    
+    <!-- Lighter middle section -->
+    <path
+        android:fillColor="#2A4A6C"
+        android:pathData="M0,20 L108,20 L108,88 L0,88 Z" />
+    
+    <!-- iOS 6 signature glossy top highlight -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.15"
+        android:pathData="M0,0 L108,0 L108,54 Q54,60 0,54 Z" />
+    
+    <!-- Subtle inner glow -->
+    <path
+        android:fillColor="#4A7AAC"
+        android:fillAlpha="0.3"
+        android:pathData="M20,20 L88,20 L88,88 L20,88 Z" />
+    
+    <!-- Edge highlight - top -->
+    <path
+        android:fillColor="#6A9ACC"
+        android:fillAlpha="0.5"
+        android:pathData="M0,0 L108,0 L108,2 L0,2 Z" />
+    
+    <!-- Edge shadow - bottom -->
+    <path
+        android:fillColor="#0A1A2C"
+        android:fillAlpha="0.5"
+        android:pathData="M0,106 L108,106 L108,108 L0,108 Z" />
+    
+    <!-- Subtle noise texture effect (diagonal lines) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.02"
+        android:pathData="M0,0 L2,0 L108,106 L108,108 L106,108 L0,2 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.02"
+        android:pathData="M10,0 L12,0 L108,96 L108,98 L106,98 L10,2 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.02"
+        android:pathData="M20,0 L22,0 L108,86 L108,88 L106,88 L20,2 Z" />
+    
+</vector>

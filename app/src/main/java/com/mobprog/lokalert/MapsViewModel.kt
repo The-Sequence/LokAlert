@@ -154,4 +154,43 @@ class MapsViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+    
+    /**
+     * Clear all existing alarms and insert demo profile locations
+     */
+    fun loadDemoProfile(demoLocations: List<DemoLocation>) {
+        viewModelScope.launch {
+            // Delete all existing alarms
+            savedLocations.value.forEach { alarm ->
+                dao.deleteAlarm(alarm)
+            }
+            
+            // Insert demo locations
+            demoLocations.forEach { demo ->
+                val alarm = LocationAlarm(
+                    name = demo.name,
+                    latitude = demo.latitude,
+                    longitude = demo.longitude,
+                    radius = demo.radius,
+                    soundUri = "",
+                    isEnabled = demo.isEnabled,
+                    isGradualVolume = false,
+                    activeDays = demo.activeDays,
+                    isFavorite = demo.isFavorite
+                )
+                dao.insertAlarm(alarm)
+            }
+        }
+    }
+    
+    /**
+     * Clear all saved locations
+     */
+    fun clearAllLocations() {
+        viewModelScope.launch {
+            savedLocations.value.forEach { alarm ->
+                dao.deleteAlarm(alarm)
+            }
+        }
+    }
 }

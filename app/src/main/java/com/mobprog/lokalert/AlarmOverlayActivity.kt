@@ -1,7 +1,10 @@
 package com.mobprog.lokalert
 
+import android.app.AlarmManager
 import android.app.KeyguardManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
@@ -134,20 +137,42 @@ class AlarmOverlayActivity : ComponentActivity() {
         setContent {
             val appPreferences = remember { AppPreferences(applicationContext) }
             val darkMode by appPreferences.darkMode.collectAsState(initial = 0)
+            val designLanguage by appPreferences.designLanguage.collectAsState(initial = 0)
             
             LokAlertTheme(darkMode = darkMode) {
-                AlarmOverlayScreen(
-                    alarmName = alarmName,
-                    latitude = latitude,
-                    longitude = longitude,
-                    onDismiss = {
-                        stopAlarm()
-                        finish()
-                        // Disable the default closing animation
-                        @Suppress("DEPRECATION")
-                        overridePendingTransition(0, 0)
-                    }
-                )
+                if (designLanguage == 1) {
+                    // iOS 6 themed alarm overlay
+                    com.mobprog.lokalert.ui.ios6.iOS6AlarmOverlayScreen(
+                        alarmName = alarmName,
+                        latitude = latitude,
+                        longitude = longitude,
+                        onDismiss = {
+                            stopAlarm()
+                            finish()
+                            @Suppress("DEPRECATION")
+                            overridePendingTransition(0, 0)
+                        },
+                        onSnooze = {
+                            stopAlarm()
+                            scheduleSnoozeAlarm(alarmName, soundUri, isGradualVolume, latitude, longitude)
+                            finish()
+                            @Suppress("DEPRECATION")
+                            overridePendingTransition(0, 0)
+                        }
+                    )
+                } else {
+                    AlarmOverlayScreen(
+                        alarmName = alarmName,
+                        latitude = latitude,
+                        longitude = longitude,
+                        onDismiss = {
+                            stopAlarm()
+                            finish()
+                            @Suppress("DEPRECATION")
+                            overridePendingTransition(0, 0)
+                        }
+                    )
+                }
             }
         }
     }
@@ -316,9 +341,65 @@ class AlarmOverlayActivity : ComponentActivity() {
         restoreAudioSettings()
     }
     
+    private fun scheduleSnoozeAlarm(
+        alarmName: String,
+        soundUri: String,
+        isGradualVolume: Boolean,
+        latitude: Double,
+        longitude: Double
+    ) {
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        
+        val intent = Intent(this, SnoozeAlarmReceiver::class.java).apply {
+            putExtra("ALARM_NAME", alarmName)
+            putExtra("SOUND_URI", soundUri)
+            putExtra("IS_GRADUAL_VOLUME", isGradualVolume)
+            putExtra("LATITUDE", latitude)
+            putExtra("LONGITUDE", longitude)
+        }
+        
+        val pendingIntent = PendingIntent.getBroadcast(
+            this,
+            SNOOZE_REQUEST_CODE,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        
+        val triggerTime = System.currentTimeMillis() + SNOOZE_DURATION_MS
+        
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+                // Fallback to inexact alarm if exact alarm permission not granted
+                alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerTime,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerTime,
+                    pendingIntent
+                )
+            }
+        } catch (e: SecurityException) {
+            // Fallback to inexact alarm
+            alarmManager.setAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                triggerTime,
+                pendingIntent
+            )
+        }
+    }
+    
     override fun onDestroy() {
         super.onDestroy()
         stopAlarm()
+    }
+    
+    companion object {
+        private const val SNOOZE_DURATION_MS = 5 * 60 * 1000L // 5 minutes
+        private const val SNOOZE_REQUEST_CODE = 12345
     }
 }
 

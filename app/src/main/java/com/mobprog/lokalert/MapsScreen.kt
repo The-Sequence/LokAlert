@@ -838,7 +838,7 @@ fun MapsScreen(
                         }
                     }
                 },
-                    onSliderActiveChange = { sliderActive = it }
+                    onSliderActiveChange = { /* Content animation only - sheet stays visible */ }
                 )
             }
         }

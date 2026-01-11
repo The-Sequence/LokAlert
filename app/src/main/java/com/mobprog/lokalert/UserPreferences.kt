@@ -67,7 +67,8 @@ class AppPreferences(private val context: Context) {
         val COOLDOWN_ENABLED = booleanPreferencesKey("cooldown_enabled")
         val COOLDOWN_MINUTES = intPreferencesKey("cooldown_minutes")
         val VIBRATION_INTENSITY = intPreferencesKey("vibration_intensity") // 0=Low, 1=Medium, 2=Strong
-        val DARK_MODE = intPreferencesKey("dark_mode") // 0=Light, 1=Dark Gray, 2=Pitch Black
+        val DARK_MODE = intPreferencesKey("dark_mode") // 0=Light, 1=Dark, 3=Auto
+        val APP_THEME = intPreferencesKey("app_theme") // 0=Standard, 1=Expressive, 2=Ocean, 3=Sunset, 4=Forest, 5=Retro, 6=Monochrome
         val DEFAULT_ALARM_SOUND = stringPreferencesKey("default_alarm_sound")
         
         // Alarm Overlay Customization
@@ -82,6 +83,10 @@ class AppPreferences(private val context: Context) {
         // Test Alarm Delay
         val TEST_ALARM_DELAY_ENABLED = booleanPreferencesKey("test_alarm_delay_enabled")
         val TEST_ALARM_DELAY_SECONDS = intPreferencesKey("test_alarm_delay_seconds") // 1-5 seconds
+        
+        // Developer Options
+        val DEVELOPER_MODE_ENABLED = booleanPreferencesKey("developer_mode_enabled")
+        val DESIGN_LANGUAGE = intPreferencesKey("design_language") // 0=Material3, 1=iOS6 Skeuomorphic
     }
 
     val isCooldownEnabled: Flow<Boolean> = context.dataStore.data
@@ -102,6 +107,11 @@ class AppPreferences(private val context: Context) {
     val darkMode: Flow<Int> = context.dataStore.data
         .map { preferences ->
             preferences[DARK_MODE] ?: 3 // Default to Auto (follows system)
+        }
+    
+    val appTheme: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            preferences[APP_THEME] ?: 0 // Default to Standard theme
         }
     
     val defaultAlarmSound: Flow<String> = context.dataStore.data
@@ -179,6 +189,12 @@ class AppPreferences(private val context: Context) {
         }
     }
     
+    suspend fun setAppTheme(theme: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[APP_THEME] = theme
+        }
+    }
+    
     suspend fun setDefaultAlarmSound(uri: String) {
         context.dataStore.edit { preferences ->
             preferences[DEFAULT_ALARM_SOUND] = uri
@@ -238,5 +254,24 @@ class AppPreferences(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences[TEST_ALARM_DELAY_SECONDS] = seconds.coerceIn(1, 5)
         }
+    }
+    
+    suspend fun setDeveloperModeEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[DEVELOPER_MODE_ENABLED] = enabled
+        }
+    }
+    
+    val designLanguage: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            preferences[DESIGN_LANGUAGE] ?: 0 // Default to Material 3
+        }
+    
+    suspend fun setDesignLanguage(language: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[DESIGN_LANGUAGE] = language
+        }
+        // Also update the app icon to match the design language
+        IconManager.setAppIcon(context, language)
     }
 }

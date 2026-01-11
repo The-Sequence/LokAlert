@@ -38,6 +38,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DarkMode
@@ -102,7 +103,8 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     onColorChange: (Color) -> Unit,
     isRainbowEnabled: Boolean,
-    onRainbowToggle: (Boolean) -> Unit
+    onRainbowToggle: (Boolean) -> Unit,
+    mapsViewModel: MapsViewModel? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -166,6 +168,7 @@ fun SettingsScreen(
                 isRainbowEnabled = isRainbowEnabled,
                 onRainbowToggle = onRainbowToggle,
                 isCompact = isLandscape && screenHeight < 500.dp,
+                mapsViewModel = mapsViewModel,
                 modifier = Modifier
                     .fillMaxHeight()
                     .weight(1f)
@@ -179,7 +182,8 @@ fun SettingsScreen(
             scope = scope,
             onColorChange = onColorChange,
             isRainbowEnabled = isRainbowEnabled,
-            onRainbowToggle = onRainbowToggle
+            onRainbowToggle = onRainbowToggle,
+            mapsViewModel = mapsViewModel
         )
     }
 }
@@ -209,6 +213,7 @@ fun SettingsCategoriesList(
         CategoryItem("Sound & Haptics", Icons.AutoMirrored.Filled.VolumeUp),
         CategoryItem("Alarm Display", Icons.Default.Palette),
         CategoryItem("Appearance", Icons.Default.DarkMode),
+        CategoryItem("Developer Options", Icons.Default.Build),
         CategoryItem("About", Icons.Default.Info)
     )
     
@@ -295,6 +300,7 @@ fun SettingsDetailPane(
     isRainbowEnabled: Boolean,
     onRainbowToggle: (Boolean) -> Unit,
     isCompact: Boolean = false,
+    mapsViewModel: MapsViewModel? = null,
     modifier: Modifier = Modifier
 ) {
     // For Alarm Display on wide screens, use special layout with fixed preview
@@ -319,6 +325,7 @@ fun SettingsDetailPane(
                 "Notifications" -> NotificationsSettingDetail(appPreferences, scope, isCompact)
                 "Sound & Haptics" -> SoundHapticsSettingDetail(appPreferences, context, scope, isCompact)
                 "Appearance" -> AppearanceSettingDetail(appPreferences, scope, onColorChange, isRainbowEnabled, onRainbowToggle, isCompact)
+                "Developer Options" -> DeveloperOptionsSettingDetail(appPreferences, scope, mapsViewModel, isCompact)
                 "About" -> AboutUsDetailPane()
             }
         }
@@ -1333,6 +1340,66 @@ fun ThemeStyleCard(
 }
 
 // ============================================================================
+// COLOR THEME CARD (For selecting app color themes)
+// ============================================================================
+
+@Composable
+fun ColorThemeCard(
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    emoji: String,
+    label: String,
+    isCompact: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val cardHeight = if (isCompact) 70.dp else 85.dp
+    
+    Card(
+        modifier = modifier
+            .height(cardHeight)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected)
+                MaterialTheme.colorScheme.primaryContainer
+            else
+                MaterialTheme.colorScheme.surfaceVariant
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (isSelected) 4.dp else 1.dp
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = emoji,
+                fontSize = if (isCompact) 20.sp else 24.sp
+            )
+            
+            Spacer(modifier = Modifier.height(if (isCompact) 2.dp else 4.dp))
+            
+            Text(
+                text = label,
+                fontSize = if (isCompact) 10.sp else 12.sp,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                color = if (isSelected)
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                else
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+// ============================================================================
 // DISMISS STYLE CARD (Square card with icon for dismiss options)
 // ============================================================================
 
@@ -2092,6 +2159,7 @@ fun AppearanceSettingDetail(
     isCompact: Boolean = false
 ) {
     val darkModeValue by appPreferences.darkMode.collectAsState(initial = 0)
+    val appThemeValue by appPreferences.appTheme.collectAsState(initial = 0)
     val isSystemDark = isSystemInDarkTheme()
     
     var showColorOptions by remember { mutableStateOf(false) }
@@ -2179,9 +2247,94 @@ fun AppearanceSettingDetail(
         Text(
             text = when (darkModeValue) {
                 0 -> "☀️ Bright theme for daytime use"
-                1 -> "🌙 Dark gray theme, easier on the eyes"
+                1 -> "🌙 Dark theme, easier on the eyes"
                 3 -> "🔄 Follows your system theme setting"
-                else -> "🌙 Dark gray theme, easier on the eyes"
+                else -> "🌙 Dark theme, easier on the eyes"
+            },
+            fontSize = subTextFontSize,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            lineHeight = subTextFontSize * 1.3f
+        )
+        
+        Spacer(modifier = Modifier.height(sectionSpacing))
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(sectionSpacing))
+        
+        // === COLOR THEME SECTION ===
+        Text(
+            text = "Color Theme",
+            fontSize = sectionTitleFontSize,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(if (isCompact) 6.dp else 8.dp))
+        Text(
+            text = "Choose your app's color palette",
+            fontSize = subTextFontSize,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(if (isCompact) 10.dp else 14.dp))
+        
+        // Theme options
+        val themeOptions = listOf(
+            Triple(0, "🎨", "Standard"),
+            Triple(1, "✨", "Express"),
+            Triple(2, "🌊", "Ocean"),
+            Triple(3, "🌅", "Sunset"),
+            Triple(4, "🌲", "Forest"),
+            Triple(5, "🕹️", "Retro"),
+            Triple(6, "⚫", "Mono")
+        )
+        
+        // First row of themes (4 items)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(if (isCompact) 6.dp else 8.dp)
+        ) {
+            themeOptions.take(4).forEach { (index, emoji, label) ->
+                ColorThemeCard(
+                    isSelected = appThemeValue == index,
+                    onClick = { scope.launch { appPreferences.setAppTheme(index) } },
+                    emoji = emoji,
+                    label = label,
+                    isCompact = isCompact,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(if (isCompact) 6.dp else 8.dp))
+        
+        // Second row of themes (3 items + spacer)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(if (isCompact) 6.dp else 8.dp)
+        ) {
+            themeOptions.drop(4).forEach { (index, emoji, label) ->
+                ColorThemeCard(
+                    isSelected = appThemeValue == index,
+                    onClick = { scope.launch { appPreferences.setAppTheme(index) } },
+                    emoji = emoji,
+                    label = label,
+                    isCompact = isCompact,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+        }
+        
+        Spacer(modifier = Modifier.height(if (isCompact) 10.dp else 14.dp))
+        
+        // Theme description
+        Text(
+            text = when (appThemeValue) {
+                0 -> "🎨 Clean Material 3 design with blue accents"
+                1 -> "✨ Vibrant purple and pink, bold and expressive"
+                2 -> "🌊 Calming blue and teal, like ocean waves"
+                3 -> "🌅 Warm oranges and corals, sunset vibes"
+                4 -> "🌲 Nature-inspired greens, fresh and earthy"
+                5 -> "🕹️ 80s neon colors, retro gaming aesthetic"
+                6 -> "⚫ Classic black and white, minimalist"
+                else -> "🎨 Clean Material 3 design"
             },
             fontSize = subTextFontSize,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2272,6 +2425,663 @@ fun AppearanceSettingDetail(
     }
 }
 
+// ============================================================================
+// DEVELOPER OPTIONS SETTINGS
+// ============================================================================
+
+@Composable
+fun DeveloperOptionsSettingDetail(
+    appPreferences: AppPreferences,
+    scope: kotlinx.coroutines.CoroutineScope,
+    mapsViewModel: MapsViewModel?,
+    isCompact: Boolean = false
+) {
+    var selectedProfileId by remember { mutableStateOf<String?>(null) }
+    var showConfirmDialog by remember { mutableStateOf(false) }
+    var profileToLoad by remember { mutableStateOf<DemoProfile?>(null) }
+    var showSuccessMessage by remember { mutableStateOf(false) }
+    var successProfileName by remember { mutableStateOf("") }
+    
+    // Dynamic sizing
+    val titleFontSize = if (isCompact) 20.sp else 24.sp
+    val descFontSize = if (isCompact) 13.sp else 15.sp
+    val sectionSpacing = if (isCompact) 16.dp else 24.dp
+    val sectionTitleFontSize = if (isCompact) 15.sp else 17.sp
+    
+    // Success message auto-dismiss
+    LaunchedEffect(showSuccessMessage) {
+        if (showSuccessMessage) {
+            delay(3000)
+            showSuccessMessage = false
+        }
+    }
+    
+    Column {
+        Text(
+            text = "Developer Options",
+            fontSize = titleFontSize,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(if (isCompact) 6.dp else 10.dp))
+        Text(
+            text = "Demo profiles for testing and presentations",
+            fontSize = descFontSize,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            lineHeight = descFontSize * 1.3f
+        )
+        
+        Spacer(modifier = Modifier.height(sectionSpacing))
+        
+        // Warning Banner
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("⚠️", fontSize = 20.sp)
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Loading a profile will replace your current settings and saved locations",
+                    fontSize = if (isCompact) 12.sp else 14.sp,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    lineHeight = (if (isCompact) 12.sp else 14.sp) * 1.3f
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(sectionSpacing))
+        
+        // Success Message
+        if (showSuccessMessage) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFF4CAF50).copy(alpha = 0.2f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("✅", fontSize = 20.sp)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "Profile \"$successProfileName\" loaded successfully!",
+                        fontSize = if (isCompact) 12.sp else 14.sp,
+                        color = Color(0xFF2E7D32),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(sectionSpacing))
+        }
+        
+        // === DESIGN LANGUAGE SECTION ===
+        Text(
+            text = "Design Language",
+            fontSize = sectionTitleFontSize,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(if (isCompact) 6.dp else 8.dp))
+        Text(
+            text = "Switch between modern and retro UI styles",
+            fontSize = if (isCompact) 12.sp else 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(if (isCompact) 10.dp else 14.dp))
+        
+        DesignLanguageSelector(
+            appPreferences = appPreferences,
+            scope = scope,
+            isCompact = isCompact
+        )
+        
+        Spacer(modifier = Modifier.height(sectionSpacing))
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(sectionSpacing))
+        
+        // Demo Profiles Section
+        Text(
+            text = "Demo Profiles",
+            fontSize = sectionTitleFontSize,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(if (isCompact) 10.dp else 14.dp))
+        
+        // Profile Cards
+        DemoProfiles.allProfiles.forEach { profile ->
+            DemoProfileCard(
+                profile = profile,
+                isSelected = selectedProfileId == profile.id,
+                onClick = { selectedProfileId = profile.id },
+                onLoadProfile = {
+                    profileToLoad = profile
+                    showConfirmDialog = true
+                },
+                isCompact = isCompact
+            )
+            Spacer(modifier = Modifier.height(if (isCompact) 8.dp else 12.dp))
+        }
+    }
+    
+    // Confirmation Dialog
+    if (showConfirmDialog && profileToLoad != null) {
+        AlertDialog(
+            onDismissRequest = { 
+                showConfirmDialog = false
+                profileToLoad = null
+            },
+            icon = {
+                Text(profileToLoad!!.emoji, fontSize = 32.sp)
+            },
+            title = {
+                Text("Load \"${profileToLoad!!.name}\"?")
+            },
+            text = {
+                Column {
+                    Text(
+                        "This will:",
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("• Replace all your current settings")
+                    Text("• Delete all your saved locations")
+                    Text("• Add ${profileToLoad!!.locations.size} demo location(s)")
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "This action cannot be undone.",
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val profile = profileToLoad!!
+                        scope.launch {
+                            // Apply all settings
+                            appPreferences.setDarkMode(profile.darkMode)
+                            appPreferences.setCooldownEnabled(profile.cooldownEnabled)
+                            appPreferences.setCooldownMinutes(profile.cooldownMinutes)
+                            appPreferences.setVibrationIntensity(profile.vibrationIntensity)
+                            appPreferences.setOverlayDismissStyle(profile.overlayDismissStyle)
+                            appPreferences.setOverlayBackgroundStyle(profile.overlayBackgroundStyle)
+                            appPreferences.setOverlayShowDistance(profile.overlayShowDistance)
+                            appPreferences.setOverlayShowEmoji(profile.overlayShowEmoji)
+                            appPreferences.setOverlayPrimaryColor(profile.overlayPrimaryColor)
+                            appPreferences.setOverlayEmoji(profile.overlayEmoji)
+                            
+                            // Load demo locations
+                            mapsViewModel?.loadDemoProfile(profile.locations)
+                            
+                            successProfileName = profile.name
+                            showSuccessMessage = true
+                        }
+                        showConfirmDialog = false
+                        profileToLoad = null
+                    }
+                ) {
+                    Text("Load Profile")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { 
+                    showConfirmDialog = false
+                    profileToLoad = null
+                }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun DemoProfileCard(
+    profile: DemoProfile,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    onLoadProfile: () -> Unit,
+    isCompact: Boolean = false
+) {
+    val cardFontSize = if (isCompact) 14.sp else 16.sp
+    val subFontSize = if (isCompact) 11.sp else 13.sp
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            }
+        ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(if (isCompact) 12.dp else 16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Profile Emoji
+                Box(
+                    modifier = Modifier
+                        .size(if (isCompact) 40.dp else 48.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isSelected) {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(profile.emoji, fontSize = if (isCompact) 20.sp else 24.sp)
+                }
+                
+                Spacer(modifier = Modifier.width(12.dp))
+                
+                // Profile Info
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = profile.name,
+                        fontSize = cardFontSize,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                    Text(
+                        text = profile.description,
+                        fontSize = subFontSize,
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        }
+                    )
+                }
+                
+                // Selection indicator
+                if (isSelected) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = "Selected",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(if (isCompact) 20.dp else 24.dp)
+                    )
+                }
+            }
+            
+            // Expanded details when selected
+            if (isSelected) {
+                Spacer(modifier = Modifier.height(if (isCompact) 10.dp else 14.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f))
+                Spacer(modifier = Modifier.height(if (isCompact) 10.dp else 14.dp))
+                
+                // Profile Details Grid
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    ProfileDetailChip(
+                        icon = when (profile.darkMode) {
+                            0 -> "☀️"
+                            1 -> "🌙"
+                            else -> "🔄"
+                        },
+                        label = when (profile.darkMode) {
+                            0 -> "Light"
+                            1 -> "Dark"
+                            else -> "Auto"
+                        },
+                        isCompact = isCompact
+                    )
+                    ProfileDetailChip(
+                        icon = when (profile.appTheme) {
+                            0 -> "🎨"
+                            1 -> "✨"
+                            2 -> "🌊"
+                            3 -> "🌅"
+                            4 -> "🌲"
+                            5 -> "🕹️"
+                            else -> "⚫"
+                        },
+                        label = when (profile.appTheme) {
+                            0 -> "Standard"
+                            1 -> "Express"
+                            2 -> "Ocean"
+                            3 -> "Sunset"
+                            4 -> "Forest"
+                            5 -> "Retro"
+                            else -> "Mono"
+                        },
+                        isCompact = isCompact
+                    )
+                    ProfileDetailChip(
+                        icon = "📍",
+                        label = "${profile.locations.size} places",
+                        isCompact = isCompact
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(if (isCompact) 10.dp else 14.dp))
+                
+                // More details row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ProfileDetailChip(
+                        icon = profile.overlayEmoji,
+                        label = "Alarm",
+                        isCompact = isCompact
+                    )
+                    ProfileDetailChip(
+                        icon = when (profile.vibrationIntensity) {
+                            0 -> "💤"
+                            1 -> "📱"
+                            else -> "🔔"
+                        },
+                        label = when (profile.vibrationIntensity) {
+                            0 -> "Gentle"
+                            1 -> "Normal"
+                            else -> "Strong"
+                        },
+                        isCompact = isCompact
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(if (isCompact) 12.dp else 16.dp))
+                
+                // Load Button
+                Button(
+                    onClick = onLoadProfile,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Load This Profile")
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// DESIGN LANGUAGE SELECTOR
+// ============================================================================
+
+@Composable
+fun DesignLanguageSelector(
+    appPreferences: AppPreferences,
+    scope: kotlinx.coroutines.CoroutineScope,
+    isCompact: Boolean = false
+) {
+    val context = LocalContext.current
+    val currentDesignLanguage by appPreferences.designLanguage.collectAsState(initial = 0)
+    var showRestartDialog by remember { mutableStateOf(false) }
+    var pendingDesignLanguage by remember { mutableIntStateOf(0) }
+    
+    val cardFontSize = if (isCompact) 14.sp else 16.sp
+    val subFontSize = if (isCompact) 11.sp else 13.sp
+    
+    Column(verticalArrangement = Arrangement.spacedBy(if (isCompact) 8.dp else 12.dp)) {
+        // Material 3 Option
+        DesignLanguageCard(
+            emoji = "🎨",
+            title = "Material 3",
+            description = "Modern, clean design with dynamic colors",
+            isSelected = currentDesignLanguage == 0,
+            onClick = {
+                if (currentDesignLanguage != 0) {
+                    pendingDesignLanguage = 0
+                    showRestartDialog = true
+                }
+            },
+            isCompact = isCompact
+        )
+        
+        // iOS 6 Skeuomorphic Option
+        DesignLanguageCard(
+            emoji = "📱",
+            title = "iOS 6 Classic",
+            description = "Retro skeuomorphic design with glossy buttons",
+            isSelected = currentDesignLanguage == 1,
+            onClick = {
+                if (currentDesignLanguage != 1) {
+                    pendingDesignLanguage = 1
+                    showRestartDialog = true
+                }
+            },
+            isCompact = isCompact
+        )
+    }
+    
+    // Restart confirmation dialog
+    if (showRestartDialog) {
+        AlertDialog(
+            onDismissRequest = { showRestartDialog = false },
+            icon = {
+                Text(
+                    text = if (pendingDesignLanguage == 1) "📱" else "🎨",
+                    fontSize = 48.sp
+                )
+            },
+            title = {
+                Text(
+                    text = "Change Design Language?",
+                    textAlign = TextAlign.Center
+                )
+            },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = if (pendingDesignLanguage == 1) {
+                            "Switch to iOS 6 Classic style"
+                        } else {
+                            "Switch to Material 3 style"
+                        },
+                        textAlign = TextAlign.Center,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🔄", fontSize = 20.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "The app will restart to apply the new design",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            appPreferences.setDesignLanguage(pendingDesignLanguage)
+                            // Small delay to ensure preference is saved
+                            delay(200)
+                            // Restart the app
+                            val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                            intent?.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                            intent?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            intent?.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                            context.startActivity(intent)
+                            // Exit current activity
+                            (context as? android.app.Activity)?.finish()
+                            // Force process kill for clean restart
+                            android.os.Process.killProcess(android.os.Process.myPid())
+                        }
+                    }
+                ) {
+                    Text("Restart Now")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestartDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun DesignLanguageCard(
+    emoji: String,
+    title: String,
+    description: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    isCompact: Boolean = false
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            }
+        ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(if (isCompact) 12.dp else 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Emoji icon
+            Box(
+                modifier = Modifier
+                    .size(if (isCompact) 44.dp else 52.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (isSelected) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(emoji, fontSize = if (isCompact) 24.sp else 28.sp)
+            }
+            
+            Spacer(modifier = Modifier.width(if (isCompact) 12.dp else 16.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = if (isCompact) 15.sp else 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = description,
+                    fontSize = if (isCompact) 12.sp else 13.sp,
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    }
+                )
+            }
+            
+            // Selection indicator
+            if (isSelected) {
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = "Selected",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .border(
+                            2.dp,
+                            MaterialTheme.colorScheme.outline,
+                            CircleShape
+                        )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ProfileDetailChip(
+    icon: String,
+    label: String,
+    isCompact: Boolean = false
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+            .padding(horizontal = if (isCompact) 6.dp else 8.dp, vertical = if (isCompact) 4.dp else 6.dp)
+    ) {
+        Text(icon, fontSize = if (isCompact) 12.sp else 14.sp)
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            label,
+            fontSize = if (isCompact) 10.sp else 12.sp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+        )
+    }
+}
+
 @Composable
 fun AboutUsDetailPane() {
     AboutUsScreen(onDismiss = {}, isEmbedded = true)
@@ -2284,7 +3094,8 @@ fun SettingsSingleColumnLayout(
     scope: kotlinx.coroutines.CoroutineScope,
     onColorChange: (Color) -> Unit,
     isRainbowEnabled: Boolean,
-    onRainbowToggle: (Boolean) -> Unit
+    onRainbowToggle: (Boolean) -> Unit,
+    mapsViewModel: MapsViewModel? = null
 ) {
     // State for showing the alarm display full screen - lifted here to render outside scrollable
     var showAlarmDisplayFullScreen by remember { mutableStateOf(false) }
@@ -2324,6 +3135,12 @@ fun SettingsSingleColumnLayout(
             HorizontalDivider(modifier = Modifier.padding(vertical = 20.dp))
             
             AppearanceSettingDetail(appPreferences, scope, onColorChange, isRainbowEnabled, onRainbowToggle)
+            
+            // ============================================================================
+            // DEVELOPER OPTIONS SETTINGS
+            // ============================================================================
+            
+            DeveloperOptionsSettingDetail(appPreferences, scope, mapsViewModel)
             
             Spacer(modifier = Modifier.height(24.dp))
             
@@ -2479,3 +3296,4 @@ fun RotateDevicePrompt() {
         }
     }
 }
+

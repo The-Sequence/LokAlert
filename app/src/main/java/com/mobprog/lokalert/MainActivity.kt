@@ -104,11 +104,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.consumeAllChanges
@@ -127,6 +129,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.libraries.places.api.Places
 import com.mobprog.lokalert.ui.theme.LokAlertTheme
+import com.mobprog.lokalert.ui.ios6.iOS6MainApp
 import kotlinx.coroutines.launch
 
 
@@ -150,9 +153,16 @@ class MainActivity : ComponentActivity() {
             val appPreferences = remember { AppPreferences(applicationContext) }
             val isSystemInDarkTheme = isSystemInDarkTheme()
             val savedDarkMode by appPreferences.darkMode.collectAsState(initial = null)
+            val savedAppTheme by appPreferences.appTheme.collectAsState(initial = 0)
+            val savedDesignLanguage by appPreferences.designLanguage.collectAsState(initial = 0)
             
             // Use Auto (3) on first launch which follows system theme
             val darkMode = savedDarkMode ?: 3
+            
+            // Convert int to AppThemeType
+            val themeType = com.mobprog.lokalert.ui.theme.AppThemeType.entries.getOrElse(savedAppTheme) { 
+                com.mobprog.lokalert.ui.theme.AppThemeType.STANDARD 
+            }
             
             // Save the initial theme as Auto if not set
             LaunchedEffect(savedDarkMode) {
@@ -161,7 +171,16 @@ class MainActivity : ComponentActivity() {
                 }
             }
             
-            LokAlertTheme(darkMode = darkMode) {
+            // Initialize app icon based on design language
+            LaunchedEffect(savedDesignLanguage) {
+                IconManager.initializeIcon(applicationContext, savedDesignLanguage)
+            }
+            
+            LokAlertTheme(
+                darkMode = darkMode,
+                themeType = themeType,
+                designLanguage = savedDesignLanguage
+            ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -286,16 +305,52 @@ fun LokAlertAppEntryPoint() {
 
 @Composable
 fun LokAlertApp(enableTourPromptImmediately: Boolean = true) {
-    var currentScreen by remember { mutableStateOf("Maps") }
+    val context = LocalContext.current
+    val appPreferences = remember { AppPreferences(context) }
+    
+    // Get design language preference
+    val designLanguage by appPreferences.designLanguage.collectAsState(initial = 0)
+    val darkMode by appPreferences.darkMode.collectAsState(initial = 0)
+    
+    // ViewModel that persists across design language switches
+    val mapsViewModel: MapsViewModel = viewModel()
+    
+    // Recent searches state (shared)
+    var recentSearches by remember { mutableStateOf(emptyList<String>()) }
     var titleColor by remember { mutableStateOf(Color(0xFF006DFF)) }
     var isRainbowEffectEnabled by remember { mutableStateOf(false) }
+    
+    // Helper to add recent searches
+    fun addRecentSearch(location: String) {
+        val MAX_HISTORY = 5
+        if (!recentSearches.contains(location)) {
+            recentSearches = listOf(location) + recentSearches
+            if (recentSearches.size > MAX_HISTORY) {
+                recentSearches = recentSearches.take(MAX_HISTORY)
+            }
+        }
+    }
+    
+    // If iOS 6 design language is selected, use completely different UI
+    if (designLanguage == 1) {
+        iOS6MainApp(
+            mapsViewModel = mapsViewModel,
+            recentSearches = recentSearches,
+            onNewSearch = { query: String -> addRecentSearch(query) },
+            darkMode = darkMode,
+            onColorChange = { color: Color -> titleColor = color },
+            isRainbowEnabled = isRainbowEffectEnabled,
+            onRainbowToggle = { enabled: Boolean -> isRainbowEffectEnabled = enabled }
+        )
+        return
+    }
+    
+    // ===========================================================================
+    // MATERIAL 3 UI (Original implementation below)
+    // ===========================================================================
+    
+    var currentScreen by remember { mutableStateOf("Maps") }
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-
-    val mapsViewModel: MapsViewModel = viewModel()
-
-    // State for Search History
-    var recentSearches by remember { mutableStateOf(emptyList<String>()) }
     
     // Guided Tour State
     var showGuidedTour by remember { mutableStateOf(false) }
@@ -314,10 +369,6 @@ fun LokAlertApp(enableTourPromptImmediately: Boolean = true) {
     val helpIconSpotlightShown by userPreferences.isHelpIconSpotlightShown.collectAsState(initial = null)
     var showTourPrompt by remember { mutableStateOf(false) }
     var showHelpIconSpotlight by remember { mutableStateOf(false) }
-    
-    // Get dark mode preference
-    val appPreferences = remember { AppPreferences(context) }
-    val darkMode by appPreferences.darkMode.collectAsState(initial = 0)
     
     // UI Element positions for spotlight
     var topBarBounds by remember { mutableStateOf<Rect?>(null) }
@@ -387,17 +438,6 @@ fun LokAlertApp(enableTourPromptImmediately: Boolean = true) {
 
     BackHandler(enabled = currentScreen == "Settings") {
         currentScreen = "Maps"
-    }
-
-    // --- Helper Functions ---
-    fun addRecentSearch(location: String) {
-        val MAX_HISTORY = 5
-        if (!recentSearches.contains(location)) {
-            recentSearches = listOf(location) + recentSearches
-            if (recentSearches.size > MAX_HISTORY) {
-                recentSearches = recentSearches.take(MAX_HISTORY)
-            }
-        }
     }
 
 
@@ -475,7 +515,8 @@ fun LokAlertApp(enableTourPromptImmediately: Boolean = true) {
                         "Settings" -> SettingsScreen(
                             onColorChange = { titleColor = it },
                             isRainbowEnabled = isRainbowEffectEnabled,
-                            onRainbowToggle = { isRainbowEffectEnabled = it }
+                            onRainbowToggle = { isRainbowEffectEnabled = it },
+                            mapsViewModel = mapsViewModel
                         )
                     }
                 }
@@ -702,50 +743,189 @@ fun BottomNavBar(
     onMapTabPositioned: (Rect) -> Unit = {},
     onLocationsTabPositioned: (Rect) -> Unit = {}
 ) {
-    NavigationBar(
-        modifier = Modifier.onGloballyPositioned { coordinates ->
-            val position = coordinates.positionInWindow()
-            val size = coordinates.size
-            onBottomNavPositioned(
-                Rect(
-                    offset = Offset(position.x, position.y),
-                    size = Size(size.width.toFloat(), size.height.toFloat())
+    val designLanguage = com.mobprog.lokalert.ui.theme.LocalDesignLanguage.current
+    
+    if (designLanguage == com.mobprog.lokalert.ui.theme.DesignLanguage.IOS6_SKEUOMORPHIC) {
+        // iOS 6 style tab bar
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color(0xFF898989), Color(0xFF4B4B4B))
+                    )
                 )
+                .drawBehind {
+                    drawLine(
+                        color = Color(0xFFB0B0B0),
+                        start = Offset(0f, 0f),
+                        end = Offset(size.width, 0f),
+                        strokeWidth = 1.dp.toPx()
+                    )
+                }
+                .onGloballyPositioned { coordinates ->
+                    val position = coordinates.positionInWindow()
+                    val size = coordinates.size
+                    onBottomNavPositioned(
+                        Rect(
+                            offset = Offset(position.x, position.y),
+                            size = Size(size.width.toFloat(), size.height.toFloat())
+                        )
+                    )
+                }
+        ) {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Map Tab
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable { onScreenSelected("Maps") }
+                        .onGloballyPositioned { coordinates ->
+                            val position = coordinates.positionInWindow()
+                            val size = coordinates.size
+                            onMapTabPositioned(
+                                Rect(
+                                    offset = Offset(position.x, position.y),
+                                    size = Size(size.width.toFloat(), size.height.toFloat())
+                                )
+                            )
+                        }
+                        .padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    val isSelected = currentScreen == "Maps"
+                    Box(
+                        modifier = if (isSelected) {
+                            Modifier
+                                .size(28.dp)
+                                .background(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(Color(0xFF007AFF).copy(alpha = 0.5f), Color.Transparent)
+                                    ),
+                                    shape = CircleShape
+                                )
+                        } else Modifier.size(28.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Map,
+                            contentDescription = "Map",
+                            tint = if (isSelected) Color(0xFF007AFF) else Color(0xFFCCCCCC),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Map",
+                        fontSize = 10.sp,
+                        color = if (isSelected) Color(0xFF007AFF) else Color(0xFFCCCCCC)
+                    )
+                }
+                
+                // Alarms Tab
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable { onScreenSelected("Locations") }
+                        .onGloballyPositioned { coordinates ->
+                            val position = coordinates.positionInWindow()
+                            val size = coordinates.size
+                            onLocationsTabPositioned(
+                                Rect(
+                                    offset = Offset(position.x, position.y),
+                                    size = Size(size.width.toFloat(), size.height.toFloat())
+                                )
+                            )
+                        }
+                        .padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    val isSelected = currentScreen == "Locations"
+                    Box(
+                        modifier = if (isSelected) {
+                            Modifier
+                                .size(28.dp)
+                                .background(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(Color(0xFF007AFF).copy(alpha = 0.5f), Color.Transparent)
+                                    ),
+                                    shape = CircleShape
+                                )
+                        } else Modifier.size(28.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Alarm,
+                            contentDescription = "Alarms",
+                            tint = if (isSelected) Color(0xFF007AFF) else Color(0xFFCCCCCC),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Alarms",
+                        fontSize = 10.sp,
+                        color = if (isSelected) Color(0xFF007AFF) else Color(0xFFCCCCCC)
+                    )
+                }
+            }
+        }
+    } else {
+        // Material 3 style
+        NavigationBar(
+            modifier = Modifier.onGloballyPositioned { coordinates ->
+                val position = coordinates.positionInWindow()
+                val size = coordinates.size
+                onBottomNavPositioned(
+                    Rect(
+                        offset = Offset(position.x, position.y),
+                        size = Size(size.width.toFloat(), size.height.toFloat())
+                    )
+                )
+            }
+        ) {
+            NavigationBarItem(
+                icon = { Icon(Icons.Default.Map, contentDescription = "Map") },
+                label = { Text("Map") },
+                selected = currentScreen == "Maps",
+                onClick = { onScreenSelected("Maps") },
+                modifier = Modifier.onGloballyPositioned { coordinates ->
+                    val position = coordinates.positionInWindow()
+                    val size = coordinates.size
+                    onMapTabPositioned(
+                        Rect(
+                            offset = Offset(position.x, position.y),
+                            size = Size(size.width.toFloat(), size.height.toFloat())
+                        )
+                    )
+                }
+            )
+            NavigationBarItem(
+                icon = { Icon(Icons.Default.Alarm, contentDescription = "Alarms") },
+                label = { Text("Alarms") },
+                selected = currentScreen == "Locations",
+                onClick = { onScreenSelected("Locations") },
+                modifier = Modifier.onGloballyPositioned { coordinates ->
+                    val position = coordinates.positionInWindow()
+                    val size = coordinates.size
+                    onLocationsTabPositioned(
+                        Rect(
+                            offset = Offset(position.x, position.y),
+                            size = Size(size.width.toFloat(), size.height.toFloat())
+                        )
+                    )
+                }
             )
         }
-    ) {
-        NavigationBarItem(
-            icon = { Icon(Icons.Default.Map, contentDescription = "Map") },
-            label = { Text("Map") },
-            selected = currentScreen == "Maps",
-            onClick = { onScreenSelected("Maps") },
-            modifier = Modifier.onGloballyPositioned { coordinates ->
-                val position = coordinates.positionInWindow()
-                val size = coordinates.size
-                onMapTabPositioned(
-                    Rect(
-                        offset = Offset(position.x, position.y),
-                        size = Size(size.width.toFloat(), size.height.toFloat())
-                    )
-                )
-            }
-        )
-        NavigationBarItem(
-            icon = { Icon(Icons.Default.Alarm, contentDescription = "Alarms") },
-            label = { Text("Alarms") },
-            selected = currentScreen == "Locations",
-            onClick = { onScreenSelected("Locations") },
-            modifier = Modifier.onGloballyPositioned { coordinates ->
-                val position = coordinates.positionInWindow()
-                val size = coordinates.size
-                onLocationsTabPositioned(
-                    Rect(
-                        offset = Offset(position.x, position.y),
-                        size = Size(size.width.toFloat(), size.height.toFloat())
-                    )
-                )
-            }
-        )
     }
 }
 
