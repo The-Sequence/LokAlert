@@ -48,10 +48,12 @@ fun iOS6MainApp(
     darkMode: Int = 0,
     onColorChange: (Color) -> Unit = {},
     isRainbowEnabled: Boolean = false,
-    onRainbowToggle: (Boolean) -> Unit = {}
+    onRainbowToggle: (Boolean) -> Unit = {},
+    onThemeTransitionRequest: (Int) -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var previousNonSettingsTab by remember { mutableIntStateOf(0) }
+    var showTrash by remember { mutableStateOf(false) }
     
     // Track if we're showing settings for the 3D cube effect
     val isShowingSettings = selectedTab == 2
@@ -111,29 +113,50 @@ fun iOS6MainApp(
                     onRainbowToggle = onRainbowToggle,
                     isShowingSettings = isShowingSettings,
                     cubeAngle = cubeAngle,
-                    previousNonSettingsTab = previousNonSettingsTab
+                    previousNonSettingsTab = previousNonSettingsTab,
+                    onThemeTransitionRequest = onThemeTransitionRequest
                 )
             } else {
                 // Phone layout with 3D cube transition for settings
                 
                 // When NOT in settings transition (cubeAngle == 0), show normal content
                 if (!isShowingSettings && cubeAngle == 0f) {
-                    when (selectedTab) {
-                        0 -> {
-                            iOS6MapsScreen(
-                                onNewSearch = onNewSearch,
-                                onDone = { selectedTab = 1 },
-                                viewModel = mapsViewModel,
-                                darkMode = darkMode
-                            )
-                        }
-                        1 -> {
-                            iOS6LocationsScreen(
-                                recentSearches = recentSearches,
-                                onViewOnMap = { selectedTab = 0 },
-                                viewModel = mapsViewModel,
-                                onRecentSearchClick = onNewSearch
-                            )
+                    // Show trash screen if needed
+                    if (showTrash) {
+                        iOS6TrashScreen(
+                            viewModel = mapsViewModel,
+                            onBack = { showTrash = false }
+                        )
+                    } else {
+                        when (selectedTab) {
+                            0 -> {
+                                iOS6MapsScreen(
+                                    onNewSearch = onNewSearch,
+                                    onDone = { selectedTab = 1 },
+                                    viewModel = mapsViewModel,
+                                    darkMode = darkMode
+                                )
+                            }
+                            1 -> {
+                                iOS6LocationsScreen(
+                                    recentSearches = recentSearches,
+                                    onViewOnMap = { selectedTab = 0 },
+                                    viewModel = mapsViewModel,
+                                    onRecentSearchClick = { query ->
+                                        // Set the pending search query
+                                        mapsViewModel.pendingSearchQuery = query
+                                        // Navigate to Maps screen
+                                        selectedTab = 0
+                                    },
+                                    onNavigateToTrash = { showTrash = true },
+                                    onUseForNewAlarm = { alarm ->
+                                        // Use saved location to create a NEW alarm
+                                        mapsViewModel.useLocationForNewAlarm(alarm)
+                                        // Navigate to Maps screen
+                                        selectedTab = 0
+                                    }
+                                )
+                            }
                         }
                     }
                 } else {
@@ -177,7 +200,15 @@ fun iOS6MainApp(
                                     recentSearches = recentSearches,
                                     onViewOnMap = { selectedTab = 0 },
                                     viewModel = mapsViewModel,
-                                    onRecentSearchClick = onNewSearch
+                                    onRecentSearchClick = { query ->
+                                        mapsViewModel.pendingSearchQuery = query
+                                        selectedTab = 0
+                                    },
+                                    onNavigateToTrash = { showTrash = true },
+                                    onUseForNewAlarm = { alarm ->
+                                        mapsViewModel.useLocationForNewAlarm(alarm)
+                                        selectedTab = 0
+                                    }
                                 )
                             }
                         }
@@ -201,7 +232,8 @@ fun iOS6MainApp(
                             mapsViewModel = mapsViewModel,
                             onNavigateBack = { 
                                 selectedTab = previousNonSettingsTab 
-                            }
+                            },
+                            onThemeTransitionRequest = onThemeTransitionRequest
                         )
                     }
                 }
@@ -246,14 +278,23 @@ private fun iOS6TabletLayout(
     onRainbowToggle: (Boolean) -> Unit,
     isShowingSettings: Boolean,
     cubeAngle: Float,
-    previousNonSettingsTab: Int
+    previousNonSettingsTab: Int,
+    onThemeTransitionRequest: (Int) -> Unit = {}
 ) {
     // Track if we have a selected detail item
     var selectedDetailItem by remember { mutableStateOf<String?>(null) }
+    var showTrash by remember { mutableStateOf(false) }
     
     // When NOT in settings transition, show normal content
     if (!isShowingSettings && cubeAngle == 0f) {
-        Row(modifier = Modifier.fillMaxSize()) {
+        // Show trash screen if needed (full screen overlay on tablet)
+        if (showTrash) {
+            iOS6TrashScreen(
+                viewModel = mapsViewModel,
+                onBack = { showTrash = false }
+            )
+        } else {
+            Row(modifier = Modifier.fillMaxSize()) {
             // Left sidebar - Locations list
             Column(
                 modifier = Modifier
@@ -276,8 +317,17 @@ private fun iOS6TabletLayout(
                         recentSearches = recentSearches,
                         onViewOnMap = { },
                         viewModel = mapsViewModel,
-                        onRecentSearchClick = onNewSearch,
-                        isEmbedded = true
+                        onRecentSearchClick = { query ->
+                            mapsViewModel.pendingSearchQuery = query
+                            onTabSelected(0)
+                        },
+                        isEmbedded = true,
+                        onNavigateToTrash = { showTrash = true },
+                        onUseForNewAlarm = { alarm ->
+                            mapsViewModel.useLocationForNewAlarm(alarm)
+                            // On tablet, switch to Maps tab in detail view
+                            onTabSelected(0)
+                        }
                     )
                 }
             }
@@ -304,6 +354,7 @@ private fun iOS6TabletLayout(
                     darkMode = darkMode
                 )
             }
+        }
         }
     } else {
         // During animation or when showing settings - apply 3D cube effect
@@ -356,8 +407,16 @@ private fun iOS6TabletLayout(
                                 recentSearches = recentSearches,
                                 onViewOnMap = { },
                                 viewModel = mapsViewModel,
-                                onRecentSearchClick = onNewSearch,
-                                isEmbedded = true
+                                onRecentSearchClick = { query ->
+                                    mapsViewModel.pendingSearchQuery = query
+                                    onTabSelected(0)
+                                },
+                                isEmbedded = true,
+                                onNavigateToTrash = { showTrash = true },
+                                onUseForNewAlarm = { alarm ->
+                                    mapsViewModel.useLocationForNewAlarm(alarm)
+                                    onTabSelected(0)
+                                }
                             )
                         }
                     }
@@ -418,7 +477,8 @@ private fun iOS6TabletLayout(
                                 onNavigateBack = { onTabSelected(previousNonSettingsTab) },
                                 isEmbedded = true,
                                 onDetailSelected = { selectedDetailItem = it },
-                                selectedDetail = selectedDetailItem
+                                selectedDetail = selectedDetailItem,
+                                onThemeTransitionRequest = onThemeTransitionRequest
                             )
                         }
                     }

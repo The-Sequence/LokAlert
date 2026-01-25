@@ -21,6 +21,23 @@ data class LocationAlarm(
     val isFavorite: Boolean = false
 )
 
+// Trashed Alarm Entity (for trash bin feature)
+@Entity(tableName = "trashed_alarms")
+data class TrashedAlarm(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val originalId: Int,
+    val name: String,
+    val latitude: Double,
+    val longitude: Double,
+    val radius: Float,
+    val soundUri: String,
+    val isEnabled: Boolean = true,
+    val isGradualVolume: Boolean,
+    val activeDays: Set<Int>,
+    val isFavorite: Boolean = false,
+    val deletedAt: Long = System.currentTimeMillis()
+)
+
 // 2. The DAO (How we access data)
 @Dao
 interface AlarmDao {
@@ -35,6 +52,25 @@ interface AlarmDao {
 
     @Update
     suspend fun updateAlarm(alarm: LocationAlarm)
+    
+    // Trash operations
+    @Query("SELECT * FROM trashed_alarms ORDER BY deletedAt DESC")
+    fun getAllTrashedAlarms(): Flow<List<TrashedAlarm>>
+    
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTrashedAlarm(alarm: TrashedAlarm)
+    
+    @Delete
+    suspend fun deleteTrashedAlarm(alarm: TrashedAlarm)
+    
+    @Query("DELETE FROM trashed_alarms")
+    suspend fun clearTrash()
+    
+    @Query("DELETE FROM trashed_alarms WHERE deletedAt < :timestamp")
+    suspend fun deleteOldTrashedAlarms(timestamp: Long)
+    
+    @Query("DELETE FROM location_alarms")
+    suspend fun deleteAllAlarms()
 }
 
 // 3. Type Converters (To store the Set<Int> days as a String)
@@ -52,7 +88,7 @@ class Converters {
 }
 
 // 4. The Database Instance
-@Database(entities = [LocationAlarm::class], version = 1)
+@Database(entities = [LocationAlarm::class, TrashedAlarm::class], version = 2, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class LokAlertDatabase : RoomDatabase() {
     abstract fun alarmDao(): AlarmDao
@@ -66,7 +102,9 @@ abstract class LokAlertDatabase : RoomDatabase() {
                     context.applicationContext,
                     LokAlertDatabase::class.java,
                     "lokalert_database"
-                ).build()
+                )
+                .fallbackToDestructiveMigration()
+                .build()
                 INSTANCE = instance
                 instance
             }

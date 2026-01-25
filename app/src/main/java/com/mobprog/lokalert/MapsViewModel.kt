@@ -18,10 +18,18 @@ class MapsViewModel(application: Application) : AndroidViewModel(application) {
 
     val savedLocations = dao.getAllAlarms()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    
+    // Trashed alarms
+    val trashedAlarms = dao.getAllTrashedAlarms()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     var locationToFocus by mutableStateOf<LatLng?>(null)
     var editingAlarmId by mutableStateOf<Int?>(null) // Track which alarm is being edited
     var pendingSearchQuery by mutableStateOf<String?>(null) // Search query to execute when Maps screen opens
+    
+    // Selection state for multi-delete
+    var isSelectionMode by mutableStateOf(false)
+    var selectedAlarmIds by mutableStateOf<Set<Int>>(emptySet())
 
     // Form State
     var markerPosition by mutableStateOf<LatLng?>(null)
@@ -32,6 +40,9 @@ class MapsViewModel(application: Application) : AndroidViewModel(application) {
     var isGradualVolume by mutableStateOf(false)
     var showBottomSheet by mutableStateOf(false)
 
+    // For new alarm creation using saved location
+    var selectedSavedLocationForNewAlarm by mutableStateOf<LocationAlarm?>(null)
+
 
     fun resetForm() {
         markerPosition = null
@@ -41,11 +52,150 @@ class MapsViewModel(application: Application) : AndroidViewModel(application) {
         isGradualVolume = false
         showBottomSheet = false
         editingAlarmId = null
+        selectedSavedLocationForNewAlarm = null
+        pendingSearchQuery = null
+    }
+    
+    /**
+     * Set up a saved location to be used as a starting point for creating a NEW alarm.
+     * This pre-fills the marker position and focuses the camera on the location.
+     */
+    fun useLocationForNewAlarm(alarm: LocationAlarm) {
+        // Store the selected location for feedback display
+        selectedSavedLocationForNewAlarm = alarm
+        
+        // Set up the marker at the saved location's coordinates
+        val position = LatLng(alarm.latitude, alarm.longitude)
+        markerPosition = position
+        locationToFocus = position
+        
+        // Pre-fill form with the saved location's data as defaults
+        // User can modify these before saving the new alarm
+        alarmName = "" // Leave blank so user can give a new name
+        radius = alarm.radius
+        selectedDays = alarm.activeDays
+        alarmSoundUri = alarm.soundUri
+        isGradualVolume = alarm.isGradualVolume
+        
+        // Important: Do NOT set editingAlarmId - this creates a NEW alarm
+        editingAlarmId = null
+    }
+    
+    /**
+     * Clear the selected saved location feedback state
+     */
+    fun clearSelectedSavedLocation() {
+        selectedSavedLocationForNewAlarm = null
+    }
+    
+    // Selection mode functions
+    fun toggleSelectionMode() {
+        isSelectionMode = !isSelectionMode
+        if (!isSelectionMode) {
+            selectedAlarmIds = emptySet()
+        }
+    }
+    
+    fun toggleAlarmSelection(alarmId: Int) {
+        selectedAlarmIds = if (selectedAlarmIds.contains(alarmId)) {
+            selectedAlarmIds - alarmId
+        } else {
+            selectedAlarmIds + alarmId
+        }
+    }
+    
+    fun selectAllAlarms() {
+        selectedAlarmIds = savedLocations.value.map { it.id }.toSet()
+    }
+    
+    fun clearSelection() {
+        selectedAlarmIds = emptySet()
+        isSelectionMode = false
+    }
+    
+    fun deleteSelectedAlarms() {
+        viewModelScope.launch {
+            val alarmsToDelete = savedLocations.value.filter { selectedAlarmIds.contains(it.id) }
+            alarmsToDelete.forEach { alarm ->
+                moveToTrash(alarm)
+            }
+            clearSelection()
+        }
     }
 
     fun deleteLocation(alarm: LocationAlarm) {
         viewModelScope.launch {
-            dao.deleteAlarm(alarm)
+            moveToTrash(alarm)
+        }
+    }
+    
+    // Move alarm to trash instead of permanent delete
+    private suspend fun moveToTrash(alarm: LocationAlarm) {
+        val trashedAlarm = TrashedAlarm(
+            originalId = alarm.id,
+            name = alarm.name,
+            latitude = alarm.latitude,
+            longitude = alarm.longitude,
+            radius = alarm.radius,
+            soundUri = alarm.soundUri,
+            isEnabled = alarm.isEnabled,
+            isGradualVolume = alarm.isGradualVolume,
+            activeDays = alarm.activeDays,
+            isFavorite = alarm.isFavorite,
+            deletedAt = System.currentTimeMillis()
+        )
+        dao.insertTrashedAlarm(trashedAlarm)
+        dao.deleteAlarm(alarm)
+    }
+    
+    // Trash operations
+    fun restoreFromTrash(trashedAlarm: TrashedAlarm) {
+        viewModelScope.launch {
+            val restoredAlarm = LocationAlarm(
+                name = trashedAlarm.name,
+                latitude = trashedAlarm.latitude,
+                longitude = trashedAlarm.longitude,
+                radius = trashedAlarm.radius,
+                soundUri = trashedAlarm.soundUri,
+                isEnabled = trashedAlarm.isEnabled,
+                isGradualVolume = trashedAlarm.isGradualVolume,
+                activeDays = trashedAlarm.activeDays,
+                isFavorite = trashedAlarm.isFavorite
+            )
+            dao.insertAlarm(restoredAlarm)
+            dao.deleteTrashedAlarm(trashedAlarm)
+        }
+    }
+    
+    fun permanentlyDelete(trashedAlarm: TrashedAlarm) {
+        viewModelScope.launch {
+            dao.deleteTrashedAlarm(trashedAlarm)
+        }
+    }
+    
+    fun emptyTrash() {
+        viewModelScope.launch {
+            dao.clearTrash()
+        }
+    }
+    
+    fun restoreAllFromTrash() {
+        viewModelScope.launch {
+            trashedAlarms.value.forEach { trashedAlarm ->
+                val restoredAlarm = LocationAlarm(
+                    name = trashedAlarm.name,
+                    latitude = trashedAlarm.latitude,
+                    longitude = trashedAlarm.longitude,
+                    radius = trashedAlarm.radius,
+                    soundUri = trashedAlarm.soundUri,
+                    isEnabled = trashedAlarm.isEnabled,
+                    isGradualVolume = trashedAlarm.isGradualVolume,
+                    activeDays = trashedAlarm.activeDays,
+                    isFavorite = trashedAlarm.isFavorite
+                )
+                dao.insertAlarm(restoredAlarm)
+                dao.deleteTrashedAlarm(trashedAlarm)
+            }
         }
     }
 
@@ -188,9 +338,7 @@ class MapsViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun clearAllLocations() {
         viewModelScope.launch {
-            savedLocations.value.forEach { alarm ->
-                dao.deleteAlarm(alarm)
-            }
+            dao.deleteAllAlarms()
         }
     }
 }

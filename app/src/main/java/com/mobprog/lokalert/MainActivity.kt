@@ -25,6 +25,7 @@ import androidx.compose.animation.core.TwoWayConverter
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
@@ -51,6 +52,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Help
@@ -171,9 +173,45 @@ class MainActivity : ComponentActivity() {
                 }
             }
             
-            // Initialize app icon based on design language
+            // Initialize app icon based on design language (first install only)
+            LaunchedEffect(Unit) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        IconManager.initializeIconIfNeeded(applicationContext, savedDesignLanguage)
+                    } catch (e: Exception) {
+                        android.util.Log.e("MainActivity", "Error initializing icon", e)
+                    }
+                }
+            }
+            
+            // DUOLINGO-STYLE BACKGROUND ICON CHANGE
+            // After app is stable, check if icon matches theme and change in background if needed
             LaunchedEffect(savedDesignLanguage) {
-                IconManager.initializeIcon(applicationContext, savedDesignLanguage)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        // Wait for app to fully stabilize (3 seconds)
+                        kotlinx.coroutines.delay(3000)
+                        
+                        android.util.Log.d("MainActivity", "Checking if icon change needed...")
+                        
+                        // Check if current icon matches saved design language
+                        val iconCorrect = IconManager.isCorrectIconEnabled(applicationContext, savedDesignLanguage)
+                        
+                        if (!iconCorrect) {
+                            android.util.Log.d("MainActivity", "Icon mismatch detected - changing in background...")
+                            android.util.Log.d("MainActivity", "Target: ${if (savedDesignLanguage == 1) "iOS6" else "Material3"}")
+                            
+                            // Change icon in background (Duolingo-style)
+                            IconManager.setAppIcon(applicationContext, savedDesignLanguage)
+                            
+                            android.util.Log.d("MainActivity", "✓ Background icon change completed")
+                        } else {
+                            android.util.Log.d("MainActivity", "✓ Icon already correct, no change needed")
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("MainActivity", "Error in background icon change", e)
+                    }
+                }
             }
             
             LokAlertTheme(
@@ -240,7 +278,7 @@ fun LokAlertAppEntryPoint() {
     
     // Track if reveal animation completed - removes onboarding overlay
     var revealCompleted by remember { mutableStateOf(false) }
-    
+
     // Control when tour prompt should show (after reveal completes)
     var enableTourPrompt by remember { mutableStateOf(false) }
 
@@ -307,10 +345,18 @@ fun LokAlertAppEntryPoint() {
 fun LokAlertApp(enableTourPromptImmediately: Boolean = true) {
     val context = LocalContext.current
     val appPreferences = remember { AppPreferences(context) }
+    val scope = rememberCoroutineScope()
     
     // Get design language preference
     val designLanguage by appPreferences.designLanguage.collectAsState(initial = 0)
     val darkMode by appPreferences.darkMode.collectAsState(initial = 0)
+    
+    // Developer mode state - hidden by default, unlocked by 5s long press on settings icon
+    val developerModeEnabled by appPreferences.developerModeEnabled.collectAsState(initial = false)
+    var showDevModeToast by remember { mutableStateOf(false) }
+    
+    // Theme transition state
+    var themeTransitionInfo by remember { mutableStateOf(ThemeTransitionInfo()) }
     
     // ViewModel that persists across design language switches
     val mapsViewModel: MapsViewModel = viewModel()
@@ -331,6 +377,49 @@ fun LokAlertApp(enableTourPromptImmediately: Boolean = true) {
         }
     }
     
+    // Function to trigger theme transition with loading screen
+    fun triggerThemeTransition(targetLanguage: Int) {
+        themeTransitionInfo = ThemeTransitionInfo(
+            state = ThemeTransitionState.LOADING,
+            targetDesignLanguage = targetLanguage,
+            isTransitioningToiOS = targetLanguage == 1
+        )
+    }
+    
+    // Helper function to apply theme and restart app
+    fun applyThemeAndRestart(targetLanguage: Int) {
+        scope.launch {
+            // Save the design language preference
+            appPreferences.setDesignLanguage(targetLanguage)
+            // Delay to ensure preference is saved
+            kotlinx.coroutines.delay(300)
+            // Restart the app and change icon (icon change happens in restart service while app is closed)
+            AppRestarter.restartApp(context, targetLanguage)
+        }
+    }
+    
+    // Show theme transition screen if transitioning
+    if (themeTransitionInfo.state == ThemeTransitionState.LOADING || 
+        themeTransitionInfo.state == ThemeTransitionState.COMPLETE) {
+        
+        if (themeTransitionInfo.isTransitioningToiOS) {
+            // Transitioning TO iOS 6
+            ThemeTransitionScreen(
+                isTransitioningToiOS = true,
+                targetDesignLanguage = 1,
+                onApplyThemeAndRestart = { applyThemeAndRestart(1) }
+            )
+        } else {
+            // Transitioning TO Material 3
+            iOS6ThemeTransitionScreen(
+                isTransitioningToMaterial = true,
+                targetDesignLanguage = 0,
+                onApplyThemeAndRestart = { applyThemeAndRestart(0) }
+            )
+        }
+        return
+    }
+    
     // If iOS 6 design language is selected, use completely different UI
     if (designLanguage == 1) {
         iOS6MainApp(
@@ -340,7 +429,8 @@ fun LokAlertApp(enableTourPromptImmediately: Boolean = true) {
             darkMode = darkMode,
             onColorChange = { color: Color -> titleColor = color },
             isRainbowEnabled = isRainbowEffectEnabled,
-            onRainbowToggle = { enabled: Boolean -> isRainbowEffectEnabled = enabled }
+            onRainbowToggle = { enabled: Boolean -> isRainbowEffectEnabled = enabled },
+            onThemeTransitionRequest = { triggerThemeTransition(it) }
         )
         return
     }
@@ -350,7 +440,7 @@ fun LokAlertApp(enableTourPromptImmediately: Boolean = true) {
     // ===========================================================================
     
     var currentScreen by remember { mutableStateOf("Maps") }
-    val scope = rememberCoroutineScope()
+    var showTrashScreen by remember { mutableStateOf(false) }
     
     // Guided Tour State
     var showGuidedTour by remember { mutableStateOf(false) }
@@ -453,7 +543,13 @@ fun LokAlertApp(enableTourPromptImmediately: Boolean = true) {
                     onSettingsIconPositioned = { settingsIconBounds = it },
                     onTopBarPositioned = { topBarBounds = it },
                     showBackButton = effectiveScreen == "Settings",
-                    onBackClick = { currentScreen = "Maps" }
+                    onBackClick = { currentScreen = "Maps" },
+                    onDeveloperModeToggle = {
+                        scope.launch {
+                            appPreferences.setDeveloperModeEnabled(!developerModeEnabled)
+                        }
+                        showDevModeToast = true
+                    }
                 )
             },
             bottomBar = {
@@ -510,17 +606,34 @@ fun LokAlertApp(enableTourPromptImmediately: Boolean = true) {
                                 mapsViewModel.pendingSearchQuery = searchQuery
                                 // Navigate to Maps screen
                                 if (!showGuidedTour) currentScreen = "Maps"
+                            },
+                            onNavigateToTrash = { showTrashScreen = true },
+                            onUseForNewAlarm = { alarm ->
+                                // Use saved location to create a NEW alarm
+                                mapsViewModel.useLocationForNewAlarm(alarm)
+                                // Navigate to Maps screen
+                                if (!showGuidedTour) currentScreen = "Maps"
                             }
                         )
                         "Settings" -> SettingsScreen(
                             onColorChange = { titleColor = it },
                             isRainbowEnabled = isRainbowEffectEnabled,
                             onRainbowToggle = { isRainbowEffectEnabled = it },
-                            mapsViewModel = mapsViewModel
+                            mapsViewModel = mapsViewModel,
+                            onThemeTransitionRequest = { triggerThemeTransition(it) },
+                            developerModeEnabled = developerModeEnabled
                         )
                     }
                 }
             }
+        }
+        
+        // Trash Screen Overlay
+        if (showTrashScreen) {
+            TrashScreen(
+                viewModel = mapsViewModel,
+                onBack = { showTrashScreen = false }
+            )
         }
         
         // Tour Prompt Dialog
@@ -597,6 +710,31 @@ fun LokAlertApp(enableTourPromptImmediately: Boolean = true) {
                 onNavigateToScreen = { screen -> currentScreen = screen }
             )
         }
+        
+        // Developer Mode Toggle Toast
+        if (showDevModeToast) {
+            LaunchedEffect(Unit) {
+                delay(3000)
+                showDevModeToast = false
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 100.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.inverseSurface,
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    text = if (developerModeEnabled) "🔓 Developer Options Enabled" else "🔒 Developer Options Disabled",
+                    color = MaterialTheme.colorScheme.inverseOnSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
     }
 }
 
@@ -626,9 +764,15 @@ fun TopBar(
     onSettingsIconPositioned: (Rect) -> Unit = {},
     onTopBarPositioned: (Rect) -> Unit = {},
     showBackButton: Boolean = false,
-    onBackClick: () -> Unit = {}
+    onBackClick: () -> Unit = {},
+    onDeveloperModeToggle: () -> Unit = {}
 ) {
     var showHelpDialog by remember { mutableStateOf(false) }
+    
+    // Track consecutive taps for developer mode toggle (5 taps needed)
+    var tapCount by remember { mutableIntStateOf(0) }
+    var lastTapTime by remember { mutableStateOf(0L) }
+    val tapResetDelay = 2000L // Reset tap count if more than 2 seconds between taps
 
     Box(
         modifier = Modifier
@@ -698,9 +842,28 @@ fun TopBar(
             modifier = Modifier.align(Alignment.Center)
         )
 
-        // Settings Icon (Aligned Right)
+        // Settings Icon (Aligned Right) - 5 consecutive taps toggles developer mode
         IconButton(
-            onClick = onSettingsClick,
+            onClick = {
+                val currentTime = System.currentTimeMillis()
+                
+                // Reset tap count if too much time has passed
+                if (currentTime - lastTapTime > tapResetDelay) {
+                    tapCount = 0
+                }
+                
+                tapCount++
+                lastTapTime = currentTime
+                
+                // Check if 5 taps reached - toggle developer mode
+                if (tapCount >= 5) {
+                    tapCount = 0
+                    onDeveloperModeToggle()
+                }
+                
+                // Always open settings on tap
+                onSettingsClick()
+            },
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .onGloballyPositioned { coordinates ->
@@ -1362,7 +1525,7 @@ fun GuidedTourOverlay(
             actionHint = ""
         ),
         InteractiveTourStep(
-            title = "You're Ready! 🎉",
+            title = "You're Ready!",
             message = "Congratulations! You now know how to use LokAlert. Create your first location alarm and never miss your destination again!",
             spotlightBounds = null,
             secondarySpotlightBounds = null,

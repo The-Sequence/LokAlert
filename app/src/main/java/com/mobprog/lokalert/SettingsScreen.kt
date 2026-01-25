@@ -3,6 +3,7 @@ package com.mobprog.lokalert
 import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,10 +26,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,13 +57,17 @@ import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
@@ -104,7 +112,9 @@ fun SettingsScreen(
     onColorChange: (Color) -> Unit,
     isRainbowEnabled: Boolean,
     onRainbowToggle: (Boolean) -> Unit,
-    mapsViewModel: MapsViewModel? = null
+    mapsViewModel: MapsViewModel? = null,
+    onThemeTransitionRequest: (Int) -> Unit = {},
+    developerModeEnabled: Boolean = false
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -152,7 +162,8 @@ fun SettingsScreen(
                 isCompact = isLandscape && screenHeight < 500.dp,
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(leftPaneWidth)
+                    .width(leftPaneWidth),
+                developerModeEnabled = developerModeEnabled
             )
             
             // Divider
@@ -171,7 +182,8 @@ fun SettingsScreen(
                 mapsViewModel = mapsViewModel,
                 modifier = Modifier
                     .fillMaxHeight()
-                    .weight(1f)
+                    .weight(1f),
+                onThemeTransitionRequest = onThemeTransitionRequest
             )
         }
     } else {
@@ -183,7 +195,9 @@ fun SettingsScreen(
             onColorChange = onColorChange,
             isRainbowEnabled = isRainbowEnabled,
             onRainbowToggle = onRainbowToggle,
-            mapsViewModel = mapsViewModel
+            mapsViewModel = mapsViewModel,
+            onThemeTransitionRequest = onThemeTransitionRequest,
+            developerModeEnabled = developerModeEnabled
         )
     }
 }
@@ -203,12 +217,13 @@ fun SettingsCategoriesList(
     selectedCategory: String,
     onCategorySelected: (String) -> Unit,
     isCompact: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    developerModeEnabled: Boolean = false
 ) {
     // Category data with Material icons
     data class CategoryItem(val name: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
     
-    val categories = listOf(
+    val allCategories = listOf(
         CategoryItem("Notifications", Icons.Default.Notifications),
         CategoryItem("Sound & Haptics", Icons.AutoMirrored.Filled.VolumeUp),
         CategoryItem("Alarm Display", Icons.Default.Palette),
@@ -216,6 +231,13 @@ fun SettingsCategoriesList(
         CategoryItem("Developer Options", Icons.Default.Build),
         CategoryItem("About", Icons.Default.Info)
     )
+    
+    // Filter out Developer Options if not enabled
+    val categories = if (developerModeEnabled) {
+        allCategories
+    } else {
+        allCategories.filter { it.name != "Developer Options" }
+    }
     
     // Dynamic padding and sizes based on compact mode
     val titleFontSize = if (isCompact) 22.sp else 28.sp
@@ -301,7 +323,8 @@ fun SettingsDetailPane(
     onRainbowToggle: (Boolean) -> Unit,
     isCompact: Boolean = false,
     mapsViewModel: MapsViewModel? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onThemeTransitionRequest: (Int) -> Unit = {}
 ) {
     // For Alarm Display on wide screens, use special layout with fixed preview
     if (selectedCategory == "Alarm Display") {
@@ -325,7 +348,7 @@ fun SettingsDetailPane(
                 "Notifications" -> NotificationsSettingDetail(appPreferences, scope, isCompact)
                 "Sound & Haptics" -> SoundHapticsSettingDetail(appPreferences, context, scope, isCompact)
                 "Appearance" -> AppearanceSettingDetail(appPreferences, scope, onColorChange, isRainbowEnabled, onRainbowToggle, isCompact)
-                "Developer Options" -> DeveloperOptionsSettingDetail(appPreferences, scope, mapsViewModel, isCompact)
+                "Developer Options" -> DeveloperOptionsSettingDetail(appPreferences, scope, mapsViewModel, isCompact, onThemeTransitionRequest)
                 "About" -> AboutUsDetailPane()
             }
         }
@@ -2434,13 +2457,28 @@ fun DeveloperOptionsSettingDetail(
     appPreferences: AppPreferences,
     scope: kotlinx.coroutines.CoroutineScope,
     mapsViewModel: MapsViewModel?,
-    isCompact: Boolean = false
+    isCompact: Boolean = false,
+    onThemeTransitionRequest: (Int) -> Unit = {}
 ) {
+    val context = LocalContext.current
     var selectedProfileId by remember { mutableStateOf<String?>(null) }
     var showConfirmDialog by remember { mutableStateOf(false) }
     var profileToLoad by remember { mutableStateOf<DemoProfile?>(null) }
     var showSuccessMessage by remember { mutableStateOf(false) }
     var successProfileName by remember { mutableStateOf("") }
+    
+    // Demo Mode state
+    val demoModeManager = remember { DemoModeManager.getInstance(context) }
+    val isDemoModeEnabled by demoModeManager.isDemoModeEnabled.collectAsState()
+    val mockLocation by demoModeManager.mockLocation.collectAsState()
+    val destination by demoModeManager.destination.collectAsState()
+    val destinationRadius by demoModeManager.destinationRadius.collectAsState()
+    val speedMps by demoModeManager.speedMps.collectAsState()
+    val isMoving by demoModeManager.isMoving.collectAsState()
+    val progress by demoModeManager.progress.collectAsState()
+    
+    // Collect dark mode setting to pass to DemoSetupScreen
+    val darkModeValue by appPreferences.darkMode.collectAsState(initial = 0)
     
     // Dynamic sizing
     val titleFontSize = if (isCompact) 20.sp else 24.sp
@@ -2521,6 +2559,301 @@ fun DeveloperOptionsSettingDetail(
             Spacer(modifier = Modifier.height(sectionSpacing))
         }
         
+        // === DEMO MODE SECTION ===
+        Text(
+            text = "Demo Mode",
+            fontSize = sectionTitleFontSize,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(if (isCompact) 6.dp else 8.dp))
+        Text(
+            text = "Simulate location movement for demonstrations",
+            fontSize = if (isCompact) 12.sp else 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(if (isCompact) 10.dp else 14.dp))
+        
+        // Demo Mode Toggle Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isDemoModeEnabled) {
+                    Color(0xFFFFA726).copy(alpha = 0.2f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                }
+            )
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("📍", fontSize = 20.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "Enable Demo Mode",
+                            fontWeight = FontWeight.Medium,
+                            fontSize = if (isCompact) 14.sp else 16.sp
+                        )
+                    }
+                    if (isDemoModeEnabled) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = if (isMoving) "Moving... ${(progress * 100).toInt()}%" else "Ready to simulate",
+                            fontSize = if (isCompact) 11.sp else 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Switch(
+                    checked = isDemoModeEnabled,
+                    onCheckedChange = { enabled ->
+                        demoModeManager.setDemoModeEnabled(enabled)
+                    }
+                )
+            }
+        }
+        
+        // Show controls only when demo mode is enabled
+        if (isDemoModeEnabled) {
+            Spacer(modifier = Modifier.height(if (isCompact) 12.dp else 16.dp))
+            
+            // Set Locations on Map Button - PRIMARY ACTION
+            var showDemoSetupScreen by remember { mutableStateOf(false) }
+            
+            Button(
+                onClick = { showDemoSetupScreen = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF2196F3)
+                )
+            ) {
+                Text("🗺️", fontSize = 18.sp)
+                Spacer(Modifier.width(8.dp))
+                Text("Set Locations on Map", fontWeight = FontWeight.Bold)
+            }
+            
+            // Demo Setup Screen Dialog
+            if (showDemoSetupScreen) {
+                DemoSetupScreen(
+                    onDismiss = { showDemoSetupScreen = false },
+                    darkMode = darkModeValue
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(sectionSpacing))
+            
+            // Quick Scenario Selector
+            Text(
+                text = "Quick Scenarios",
+                fontSize = if (isCompact) 13.sp else 15.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(DemoModeManager.DEMO_SCENARIOS) { scenario ->
+                    Card(
+                        modifier = Modifier
+                            .width(if (isCompact) 140.dp else 160.dp)
+                            .clickable {
+                                demoModeManager.setMockLocation(scenario.startLocation)
+                                demoModeManager.setDestination(scenario.destination)
+                                demoModeManager.setDestinationRadius(scenario.destinationRadius)
+                                demoModeManager.setSpeed(scenario.suggestedSpeed)
+                            },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            Text(scenario.emoji, fontSize = 24.sp)
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = scenario.name,
+                                fontSize = if (isCompact) 12.sp else 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "${scenario.suggestedSpeed} m/s",
+                                fontSize = if (isCompact) 10.sp else 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(sectionSpacing))
+            
+            // Speed Control
+            Text(
+                text = "Movement Speed: $speedMps m/s",
+                fontSize = if (isCompact) 13.sp else 15.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = when {
+                    speedMps <= 2 -> "🚶 Walking slowly"
+                    speedMps <= 5 -> "🚶 Walking"
+                    speedMps <= 10 -> "🚴 Cycling"
+                    speedMps <= 20 -> "🚗 Driving city"
+                    speedMps <= 35 -> "🚗 Driving highway"
+                    else -> "🚀 High speed"
+                },
+                fontSize = if (isCompact) 11.sp else 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Slider(
+                value = speedMps.toFloat(),
+                onValueChange = { demoModeManager.setSpeed(it.toInt()) },
+                valueRange = 1f..50f,
+                steps = 48
+            )
+            
+            Spacer(modifier = Modifier.height(sectionSpacing))
+            
+            // Destination Radius Control
+            Text(
+                text = "Destination Radius: ${destinationRadius}m",
+                fontSize = if (isCompact) 13.sp else 15.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Slider(
+                value = destinationRadius.toFloat(),
+                onValueChange = { demoModeManager.setDestinationRadius(it.toInt()) },
+                valueRange = 10f..500f,
+                steps = 48
+            )
+            
+            Spacer(modifier = Modifier.height(sectionSpacing))
+            
+            // Current Locations Display
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Current Configuration",
+                        fontWeight = FontWeight.Medium,
+                        fontSize = if (isCompact) 13.sp else 15.sp
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    
+                    mockLocation?.let { loc ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("🔵", fontSize = 16.sp)
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Mock Location (Start)",
+                                    fontSize = if (isCompact) 11.sp else 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "%.5f, %.5f".format(loc.latitude, loc.longitude),
+                                    fontSize = if (isCompact) 10.sp else 12.sp,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+                    
+                    Spacer(Modifier.height(8.dp))
+                    
+                    destination?.let { dest ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("🟢", fontSize = 16.sp)
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Destination",
+                                    fontSize = if (isCompact) 11.sp else 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "%.5f, %.5f".format(dest.latitude, dest.longitude),
+                                    fontSize = if (isCompact) 10.sp else 12.sp,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(sectionSpacing))
+            
+            // Control Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (isMoving) {
+                    Button(
+                        onClick = { demoModeManager.stopMovement() },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text("⏸ Stop")
+                    }
+                } else {
+                    Button(
+                        onClick = { demoModeManager.startMovement() },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("▶ Start Moving")
+                    }
+                    OutlinedButton(
+                        onClick = { demoModeManager.resetToStart() },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("↺ Reset")
+                    }
+                }
+            }
+            
+            // Progress indicator when moving
+            if (isMoving) {
+                Spacer(modifier = Modifier.height(12.dp))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Progress: ${(progress * 100).toInt()}%",
+                    fontSize = if (isCompact) 11.sp else 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(sectionSpacing))
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(sectionSpacing))
+        
         // === DESIGN LANGUAGE SECTION ===
         Text(
             text = "Design Language",
@@ -2538,7 +2871,8 @@ fun DeveloperOptionsSettingDetail(
         DesignLanguageSelector(
             appPreferences = appPreferences,
             scope = scope,
-            isCompact = isCompact
+            isCompact = isCompact,
+            onThemeTransitionRequest = onThemeTransitionRequest
         )
         
         Spacer(modifier = Modifier.height(sectionSpacing))
@@ -2607,6 +2941,7 @@ fun DeveloperOptionsSettingDetail(
                         scope.launch {
                             // Apply all settings
                             appPreferences.setDarkMode(profile.darkMode)
+                            appPreferences.setAppTheme(profile.appTheme) // Apply the color theme
                             appPreferences.setCooldownEnabled(profile.cooldownEnabled)
                             appPreferences.setCooldownMinutes(profile.cooldownMinutes)
                             appPreferences.setVibrationIntensity(profile.vibrationIntensity)
@@ -2833,7 +3168,8 @@ fun DemoProfileCard(
 fun DesignLanguageSelector(
     appPreferences: AppPreferences,
     scope: kotlinx.coroutines.CoroutineScope,
-    isCompact: Boolean = false
+    isCompact: Boolean = false,
+    onThemeTransitionRequest: (Int) -> Unit = {}
 ) {
     val context = LocalContext.current
     val currentDesignLanguage by appPreferences.designLanguage.collectAsState(initial = 0)
@@ -2897,55 +3233,24 @@ fun DesignLanguageSelector(
                 ) {
                     Text(
                         text = if (pendingDesignLanguage == 1) {
-                            "Switch to iOS 6 Classic style"
+                            "Switch to Classic style"
                         } else {
                             "Switch to Material 3 style"
                         },
                         textAlign = TextAlign.Center,
                         fontWeight = FontWeight.Medium
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.tertiaryContainer
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("🔄", fontSize = 20.sp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "The app will restart to apply the new design",
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer
-                            )
-                        }
-                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        scope.launch {
-                            appPreferences.setDesignLanguage(pendingDesignLanguage)
-                            // Small delay to ensure preference is saved
-                            delay(200)
-                            // Restart the app
-                            val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-                            intent?.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                            intent?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                            intent?.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
-                            context.startActivity(intent)
-                            // Exit current activity
-                            (context as? android.app.Activity)?.finish()
-                            // Force process kill for clean restart
-                            android.os.Process.killProcess(android.os.Process.myPid())
-                        }
+                        showRestartDialog = false
+                        // Trigger theme transition animation
+                        onThemeTransitionRequest(pendingDesignLanguage)
                     }
                 ) {
-                    Text("Restart Now")
+                    Text("Apply Theme")
                 }
             },
             dismissButton = {
@@ -3095,7 +3400,9 @@ fun SettingsSingleColumnLayout(
     onColorChange: (Color) -> Unit,
     isRainbowEnabled: Boolean,
     onRainbowToggle: (Boolean) -> Unit,
-    mapsViewModel: MapsViewModel? = null
+    mapsViewModel: MapsViewModel? = null,
+    onThemeTransitionRequest: (Int) -> Unit = {},
+    developerModeEnabled: Boolean = false
 ) {
     // State for showing the alarm display full screen - lifted here to render outside scrollable
     var showAlarmDisplayFullScreen by remember { mutableStateOf(false) }
@@ -3137,10 +3444,13 @@ fun SettingsSingleColumnLayout(
             AppearanceSettingDetail(appPreferences, scope, onColorChange, isRainbowEnabled, onRainbowToggle)
             
             // ============================================================================
-            // DEVELOPER OPTIONS SETTINGS
+            // DEVELOPER OPTIONS SETTINGS - Only show if enabled
             // ============================================================================
             
-            DeveloperOptionsSettingDetail(appPreferences, scope, mapsViewModel)
+            if (developerModeEnabled) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 20.dp))
+                DeveloperOptionsSettingDetail(appPreferences, scope, mapsViewModel, false, onThemeTransitionRequest)
+            }
             
             Spacer(modifier = Modifier.height(24.dp))
             

@@ -155,6 +155,47 @@ fun iOS6MapsScreen(
         // Radius changes are reflected automatically through recomposition
     }
     
+    // Handle pending search query (from recent searches or other navigation)
+    LaunchedEffect(viewModel.pendingSearchQuery) {
+        viewModel.pendingSearchQuery?.let { query ->
+            // Clear the pending query first to prevent re-triggering
+            viewModel.pendingSearchQuery = null
+            
+            // Perform the search using geocoding
+            try {
+                val geocoder = Geocoder(context, Locale.getDefault())
+                @Suppress("DEPRECATION")
+                val results = geocoder.getFromLocationName(query, 1)
+                
+                if (!results.isNullOrEmpty()) {
+                    val location = results[0]
+                    val target = LatLng(location.latitude, location.longitude)
+                    
+                    // Set the pin at the searched location
+                    viewModel.markerPosition = target
+                    
+                    // Get a readable address name
+                    reverseGeocode(context, target) { address ->
+                        viewModel.alarmName = address
+                    }
+                    
+                    // Animate camera to the location
+                    cameraPositionState.animate(
+                        CameraUpdateFactory.newLatLngZoom(target, 16f)
+                    )
+                    
+                    // Auto-open bottom sheet for alarm configuration
+                    viewModel.showBottomSheet = true
+                    
+                    // Notify parent about the search
+                    onNewSearch(query)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("iOS6MapsScreen", "Search error", e)
+            }
+        }
+    }
+    
     Box(modifier = Modifier.fillMaxSize()) {
         // Google Map
         GoogleMap(
@@ -393,6 +434,10 @@ fun iOS6MapsScreen(
                 viewModel = viewModel,
                 onDismiss = { viewModel.showBottomSheet = false },
                 onSave = {
+                    // If using a saved location and no name provided, suggest a name
+                    if (viewModel.alarmName.isBlank() && viewModel.selectedSavedLocationForNewAlarm != null) {
+                        viewModel.alarmName = "New ${viewModel.selectedSavedLocationForNewAlarm!!.name}"
+                    }
                     viewModel.saveAlarm {
                         onDone()
                     }

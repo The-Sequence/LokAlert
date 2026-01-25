@@ -1,10 +1,27 @@
 package com.mobprog.lokalert
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -15,14 +32,44 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Place
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,10 +89,14 @@ fun LocationsScreen(
     recentSearches: List<String>,
     onViewOnMap: () -> Unit,
     viewModel: MapsViewModel,
-    onRecentSearchClick: (String) -> Unit = {}
+    onRecentSearchClick: (String) -> Unit = {},
+    onNavigateToTrash: () -> Unit = {},
+    onUseForNewAlarm: (LocationAlarm) -> Unit = {}
 ) {
     val savedLocations by viewModel.savedLocations.collectAsState()
     var showFavoritesOnly by remember { mutableStateOf(false) }
+    val isSelectionMode = viewModel.isSelectionMode
+    val selectedAlarmIds = viewModel.selectedAlarmIds
 
     val displayedLocations = remember(savedLocations, showFavoritesOnly) {
         if (showFavoritesOnly) {
@@ -65,82 +116,181 @@ fun LocationsScreen(
     val screenWidth = configuration.screenWidthDp.dp
     val isWideScreen = screenWidth > 600.dp
 
-    if (isWideScreen) {
-        // Two-column layout for foldables/tablets
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // Left Column: Recent Searches
-            Column(
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (isWideScreen) {
+            // Two-column layout for foldables/tablets
+            Row(
                 modifier = Modifier
-                    .weight(0.4f)
-                    .fillMaxHeight()
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Spacer(modifier = Modifier.height(24.dp))
-                Text(
-                    "Recent Searches",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Spacer(modifier = Modifier.height(16.dp))
+                // Left Column: Recent Searches
+                Column(
+                    modifier = Modifier
+                        .weight(0.4f)
+                        .fillMaxHeight()
+                ) {
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Text(
+                        "Recent Searches",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    RecentSearchesSection(
+                        recentSearches = recentSearches,
+                        onSearchClick = onRecentSearchClick
+                    )
+                }
                 
-                RecentSearchesSection(
-                    recentSearches = recentSearches,
-                    onSearchClick = onRecentSearchClick
-                )
+                // Right Column: Saved Alarms
+                Column(
+                    modifier = Modifier
+                        .weight(0.6f)
+                        .fillMaxHeight()
+                ) {
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    // Header with trash button for wide screen
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (isSelectionMode) {
+                            Text(
+                                "${selectedAlarmIds.size} selected",
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Row {
+                                IconButton(onClick = { viewModel.selectAllAlarms() }) {
+                                    Icon(Icons.Default.SelectAll, "Select All")
+                                }
+                                IconButton(onClick = { viewModel.clearSelection() }) {
+                                    Icon(Icons.Default.Close, "Cancel Selection")
+                                }
+                            }
+                        } else {
+                            Text(
+                                "My Alarms",
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            IconButton(onClick = onNavigateToTrash) {
+                                Icon(
+                                    Icons.Default.DeleteSweep,
+                                    contentDescription = "Deleted Items",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    SavedAlarmsSection(
+                        displayedLocations = displayedLocations,
+                        showFavoritesOnly = showFavoritesOnly,
+                        onToggleFavorites = { showFavoritesOnly = it },
+                        onEdit = { locationToEdit = it },
+                        viewModel = viewModel,
+                        isSelectionMode = isSelectionMode,
+                        selectedAlarmIds = selectedAlarmIds,
+                        onNavigateToTrash = onNavigateToTrash
+                    )
+                }
             }
-            
-            // Right Column: Saved Alarms
+        } else {
+            // Single column layout for phones
             Column(
                 modifier = Modifier
-                    .weight(0.6f)
-                    .fillMaxHeight()
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp),
             ) {
                 Spacer(modifier = Modifier.height(24.dp))
+                
+                // Header with selection mode controls
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (isSelectionMode) {
+                        Text(
+                            "${selectedAlarmIds.size} selected",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Row {
+                            IconButton(onClick = { viewModel.selectAllAlarms() }) {
+                                Icon(Icons.Default.SelectAll, "Select All")
+                            }
+                            IconButton(onClick = { viewModel.clearSelection() }) {
+                                Icon(Icons.Default.Close, "Cancel Selection")
+                            }
+                        }
+                    } else {
+                        Text(
+                            "My Alarms",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        IconButton(onClick = onNavigateToTrash) {
+                            Icon(
+                                Icons.Default.DeleteSweep,
+                                contentDescription = "Trash",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Recent Searches
+                if (!isSelectionMode) {
+                    RecentSearchesSection(
+                        recentSearches = recentSearches,
+                        onSearchClick = onRecentSearchClick
+                    )
+                    
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+
+                // Saved Alarms
                 SavedAlarmsSection(
                     displayedLocations = displayedLocations,
                     showFavoritesOnly = showFavoritesOnly,
                     onToggleFavorites = { showFavoritesOnly = it },
                     onEdit = { locationToEdit = it },
-                    viewModel = viewModel
+                    viewModel = viewModel,
+                    isSelectionMode = isSelectionMode,
+                    selectedAlarmIds = selectedAlarmIds,
+                    onNavigateToTrash = onNavigateToTrash
                 )
             }
         }
-    } else {
-        // Single column layout for phones
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 20.dp),
-        ) {
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(
-                "My Alarms",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Recent Searches
-            RecentSearchesSection(
-                recentSearches = recentSearches,
-                onSearchClick = onRecentSearchClick
-            )
-            
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Saved Alarms
-            SavedAlarmsSection(
-                displayedLocations = displayedLocations,
-                showFavoritesOnly = showFavoritesOnly,
-                onToggleFavorites = { showFavoritesOnly = it },
-                onEdit = { locationToEdit = it },
-                viewModel = viewModel
+        
+        // Floating delete button when in selection mode
+        if (isSelectionMode && selectedAlarmIds.isNotEmpty()) {
+            ExtendedFloatingActionButton(
+                onClick = { viewModel.deleteSelectedAlarms() },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 100.dp),
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = Color.White,
+                icon = { Icon(Icons.Default.Delete, "Delete") },
+                text = { Text("Delete ${selectedAlarmIds.size} alarm${if (selectedAlarmIds.size > 1) "s" else ""}") }
             )
         }
     }
@@ -251,7 +401,10 @@ fun SavedAlarmsSection(
     showFavoritesOnly: Boolean,
     onToggleFavorites: (Boolean) -> Unit,
     onEdit: (LocationAlarm) -> Unit,
-    viewModel: MapsViewModel
+    viewModel: MapsViewModel,
+    isSelectionMode: Boolean = false,
+    selectedAlarmIds: Set<Int> = emptySet(),
+    onNavigateToTrash: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -298,7 +451,7 @@ fun SavedAlarmsSection(
     } else {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 100.dp),
+            contentPadding = PaddingValues(bottom = if (isSelectionMode) 160.dp else 100.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(displayedLocations, key = { it.id }) { alarm ->
@@ -307,7 +460,16 @@ fun SavedAlarmsSection(
                     onToggleFavorite = { viewModel.toggleFavorite(alarm) },
                     onDelete = { viewModel.deleteLocation(alarm) },
                     onEdit = { onEdit(alarm) },
-                    onToggleEnabled = { viewModel.toggleAlarmEnabled(alarm) }
+                    onToggleEnabled = { viewModel.toggleAlarmEnabled(alarm) },
+                    isSelectionMode = isSelectionMode,
+                    isSelected = selectedAlarmIds.contains(alarm.id),
+                    onLongPress = { 
+                        if (!isSelectionMode) {
+                            viewModel.toggleSelectionMode()
+                        }
+                        viewModel.toggleAlarmSelection(alarm.id)
+                    },
+                    onSelect = { viewModel.toggleAlarmSelection(alarm.id) }
                 )
             }
         }
@@ -316,17 +478,34 @@ fun SavedAlarmsSection(
 
 
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SavedLocationCard(
     alarm: LocationAlarm,
     onToggleFavorite: () -> Unit,
     onDelete: () -> Unit,
     onEdit: () -> Unit,
-    onToggleEnabled: () -> Unit
+    onToggleEnabled: () -> Unit,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onLongPress: () -> Unit = {},
+    onSelect: () -> Unit = {}
 ) {
     val isFav = alarm.isFavorite
-    val cardColor = MaterialTheme.colorScheme.surface
-    val borderColor = if (isFav) Color(0xFFFFD700) else Color.Transparent
+    val cardColor = if (isSelected) 
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) 
+    else 
+        MaterialTheme.colorScheme.surface
+    val borderColor = when {
+        isSelected -> MaterialTheme.colorScheme.primary
+        isFav -> Color(0xFFFFD700)
+        else -> Color.Transparent
+    }
+    
+    val scale by animateFloatAsState(
+        targetValue = if (isSelected) 0.98f else 1f,
+        label = "card_scale"
+    )
 
     Card(
         colors = CardDefaults.cardColors(containerColor = cardColor),
@@ -334,10 +513,21 @@ fun SavedLocationCard(
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier
             .fillMaxWidth()
+            .scale(scale)
             .border(
-                width = if (isFav) 1.5.dp else 0.dp,
+                width = if (isFav || isSelected) 1.5.dp else 0.dp,
                 color = borderColor,
                 shape = RoundedCornerShape(16.dp)
+            )
+            .combinedClickable(
+                onClick = {
+                    if (isSelectionMode) {
+                        onSelect()
+                    } else {
+                        onEdit()
+                    }
+                },
+                onLongClick = onLongPress
             )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -345,6 +535,19 @@ fun SavedLocationCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Selection checkbox (shown in selection mode)
+                if (isSelectionMode) {
+                    Icon(
+                        imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                        contentDescription = if (isSelected) "Selected" else "Not selected",
+                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clickable { onSelect() }
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                }
+                
                 // Left: Icon Bubble
                 Box(
                     modifier = Modifier
@@ -393,59 +596,63 @@ fun SavedLocationCard(
                     }
                 }
 
-                // Right: Actions
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onToggleFavorite) {
-                        Icon(
-                            imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = "Favorite",
-                            tint = if (isFav) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    IconButton(onClick = onEdit) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Edit",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    IconButton(onClick = onDelete) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                            modifier = Modifier.size(20.dp)
-                        )
+                // Right: Actions (hidden in selection mode)
+                if (!isSelectionMode) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onToggleFavorite) {
+                            Icon(
+                                imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                contentDescription = "Favorite",
+                                tint = if (isFav) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        IconButton(onClick = onEdit) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        IconButton(onClick = onDelete) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete",
+                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
             }
             
-            // Alarm On/Off Switch Row
-            HorizontalDivider(
-                modifier = Modifier.padding(vertical = 12.dp),
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = if (alarm.isEnabled) "Alarm Active" else "Alarm Inactive",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (alarm.isEnabled) 
-                        MaterialTheme.colorScheme.primary 
-                    else 
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            // Alarm On/Off Switch Row (hidden in selection mode)
+            if (!isSelectionMode) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 12.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                 )
-                Switch(
-                    checked = alarm.isEnabled,
-                    onCheckedChange = { onToggleEnabled() },
-                    modifier = Modifier.scale(0.9f)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (alarm.isEnabled) "Alarm Active" else "Alarm Inactive",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (alarm.isEnabled) 
+                            MaterialTheme.colorScheme.primary 
+                        else 
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                    Switch(
+                        checked = alarm.isEnabled,
+                        onCheckedChange = { onToggleEnabled() },
+                        modifier = Modifier.scale(0.9f)
+                    )
+                }
             }
         }
     }
@@ -458,7 +665,8 @@ fun EditLocationSheet(
     alarm: LocationAlarm,
     onDismiss: () -> Unit,
     onSave: (String, Set<Int>, String, Boolean) -> Unit,
-    onEditRadius: () -> Unit
+    onEditRadius: () -> Unit,
+    onUseForNewAlarm: () -> Unit = {}
 ) {
     var name by remember { mutableStateOf(alarm.name) }
     var activeDays by remember { mutableStateOf(alarm.activeDays) }
@@ -558,6 +766,21 @@ fun EditLocationSheet(
             Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text("Edit Radius on Map (${alarm.radius.toInt()}m)")
+        }
+        
+        // Use this location to create a NEW alarm
+        Button(
+            onClick = onUseForNewAlarm,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+            )
+        ) {
+            Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Use Location for New Alarm")
         }
 
         Row(

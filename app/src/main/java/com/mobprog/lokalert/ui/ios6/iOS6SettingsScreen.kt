@@ -57,7 +57,8 @@ fun iOS6SettingsScreen(
     onNavigateBack: () -> Unit = {},
     isEmbedded: Boolean = false,  // For tablet split-view
     onDetailSelected: (String?) -> Unit = {},  // Callback for tablet detail selection
-    selectedDetail: String? = null  // Currently selected detail for tablet highlighting
+    selectedDetail: String? = null,  // Currently selected detail for tablet highlighting
+    onThemeTransitionRequest: (Int) -> Unit = {}  // Theme transition callback
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -133,8 +134,12 @@ fun iOS6SettingsScreen(
             options = listOf("Material 3", "iOS 6 Classic"),
             selectedIndex = designLanguage,
             onSelect = { index ->
-                scope.launch { appPreferences.setDesignLanguage(index) }
                 showDesignLanguagePicker = false
+                // Only trigger transition if changing to a different theme
+                if (index != designLanguage) {
+                    // Use the theme transition callback instead of direct setting
+                    onThemeTransitionRequest(index)
+                }
             },
             onDismiss = { showDesignLanguagePicker = false }
         )
@@ -326,7 +331,7 @@ fun iOS6SettingsScreen(
                     icon = Icons.Default.ScreenRotation,
                     iconColor = iOS6BlueIcon,
                     title = "Design Style",
-                    value = if (designLanguage == 1) "iOS 6 Classic" else "Material 3",
+                    value = if (designLanguage == 1) "Classic" else "Material 3",
                     showDisclosure = true,
                     onClick = { showDesignLanguagePicker = true }
                 )
@@ -1033,6 +1038,7 @@ fun iOS6AlarmsDetailPane() {
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
                 .padding(bottom = 32.dp)
         ) {
             // DISMISS STYLE Section

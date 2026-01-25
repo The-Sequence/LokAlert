@@ -86,7 +86,17 @@ class AppPreferences(private val context: Context) {
         
         // Developer Options
         val DEVELOPER_MODE_ENABLED = booleanPreferencesKey("developer_mode_enabled")
-        val DESIGN_LANGUAGE = intPreferencesKey("design_language") // 0=Material3, 1=iOS6 Skeuomorphic
+        val DESIGN_LANGUAGE = intPreferencesKey("design_language") // 0=Material3, 1=Classic Skeuomorphic
+        
+        // Demo Mode Settings
+        val DEMO_MODE_ENABLED = booleanPreferencesKey("demo_mode_enabled")
+        val DEMO_MOCK_LATITUDE = stringPreferencesKey("demo_mock_latitude")
+        val DEMO_MOCK_LONGITUDE = stringPreferencesKey("demo_mock_longitude")
+        val DEMO_DESTINATION_LATITUDE = stringPreferencesKey("demo_destination_latitude")
+        val DEMO_DESTINATION_LONGITUDE = stringPreferencesKey("demo_destination_longitude")
+        val DEMO_DESTINATION_RADIUS = intPreferencesKey("demo_destination_radius")
+        val DEMO_SPEED_MPS = intPreferencesKey("demo_speed_mps") // meters per second (1-50)
+        val DEMO_IS_MOVING = booleanPreferencesKey("demo_is_moving")
     }
 
     val isCooldownEnabled: Flow<Boolean> = context.dataStore.data
@@ -163,6 +173,11 @@ class AppPreferences(private val context: Context) {
     val testAlarmDelaySeconds: Flow<Int> = context.dataStore.data
         .map { preferences ->
             preferences[TEST_ALARM_DELAY_SECONDS] ?: 3 // Default 3 seconds
+        }
+    
+    val developerModeEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[DEVELOPER_MODE_ENABLED] ?: false // Hidden by default
         }
 
     suspend fun setCooldownEnabled(enabled: Boolean) {
@@ -273,5 +288,87 @@ class AppPreferences(private val context: Context) {
         }
         // Also update the app icon to match the design language
         IconManager.setAppIcon(context, language)
+    }
+    
+    // ============================================================================
+    // DEMO MODE PREFERENCES
+    // ============================================================================
+    
+    val demoModeEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[DEMO_MODE_ENABLED] ?: false
+        }
+    
+    val demoMockLatitude: Flow<Double> = context.dataStore.data
+        .map { preferences ->
+            preferences[DEMO_MOCK_LATITUDE]?.toDoubleOrNull() ?: 14.7012 // Default: NU Fairview
+        }
+    
+    val demoMockLongitude: Flow<Double> = context.dataStore.data
+        .map { preferences ->
+            preferences[DEMO_MOCK_LONGITUDE]?.toDoubleOrNull() ?: 121.0764
+        }
+    
+    val demoDestinationLatitude: Flow<Double> = context.dataStore.data
+        .map { preferences ->
+            preferences[DEMO_DESTINATION_LATITUDE]?.toDoubleOrNull() ?: 14.7045 // Default: SM Fairview
+        }
+    
+    val demoDestinationLongitude: Flow<Double> = context.dataStore.data
+        .map { preferences ->
+            preferences[DEMO_DESTINATION_LONGITUDE]?.toDoubleOrNull() ?: 121.0785
+        }
+    
+    val demoDestinationRadius: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            preferences[DEMO_DESTINATION_RADIUS] ?: 100 // Default 100m
+        }
+    
+    val demoSpeedMps: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            preferences[DEMO_SPEED_MPS] ?: 5 // Default 5 m/s (walking speed)
+        }
+    
+    val demoIsMoving: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[DEMO_IS_MOVING] ?: false
+        }
+    
+    suspend fun setDemoModeEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[DEMO_MODE_ENABLED] = enabled
+        }
+    }
+    
+    suspend fun setDemoMockLocation(latitude: Double, longitude: Double) {
+        context.dataStore.edit { preferences ->
+            preferences[DEMO_MOCK_LATITUDE] = latitude.toString()
+            preferences[DEMO_MOCK_LONGITUDE] = longitude.toString()
+        }
+    }
+    
+    suspend fun setDemoDestination(latitude: Double, longitude: Double) {
+        context.dataStore.edit { preferences ->
+            preferences[DEMO_DESTINATION_LATITUDE] = latitude.toString()
+            preferences[DEMO_DESTINATION_LONGITUDE] = longitude.toString()
+        }
+    }
+    
+    suspend fun setDemoDestinationRadius(radius: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[DEMO_DESTINATION_RADIUS] = radius.coerceIn(10, 1000)
+        }
+    }
+    
+    suspend fun setDemoSpeedMps(speed: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[DEMO_SPEED_MPS] = speed.coerceIn(1, 50)
+        }
+    }
+    
+    suspend fun setDemoIsMoving(moving: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[DEMO_IS_MOVING] = moving
+        }
     }
 }

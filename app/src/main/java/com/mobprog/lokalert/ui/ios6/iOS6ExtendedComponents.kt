@@ -76,6 +76,7 @@ object iOS6ExtColors {
 // iOS 6 SLIDER - Classic Style with Glossy Thumb
 // ============================================================================
 
+@Suppress("UnusedBoxWithConstraintsScope")
 @Composable
 fun iOS6Slider(
     value: Float,
@@ -91,9 +92,11 @@ fun iOS6Slider(
             .fillMaxWidth()
             .height(30.dp)
     ) {
-        val trackWidth = this.constraints.maxWidth.toFloat()
+        // Use constraints to satisfy the BoxWithConstraints scope requirement
+        val constraintsMaxWidth = constraints.maxWidth
+        val trackWidthPx = constraintsMaxWidth.toFloat()
         val thumbRadius = with(density) { 14.dp.toPx() }
-        val thumbPosition = ((value - valueRange.start) / (valueRange.endInclusive - valueRange.start)) * (trackWidth - thumbRadius * 2) + thumbRadius
+        val thumbPosition = ((value - valueRange.start) / (valueRange.endInclusive - valueRange.start)) * (trackWidthPx - thumbRadius * 2) + thumbRadius
         
         // Track background
         Box(
@@ -148,8 +151,8 @@ fun iOS6Slider(
                     orientation = Orientation.Horizontal,
                     enabled = enabled,
                     state = rememberDraggableState { delta ->
-                        val newPosition = (thumbPosition + delta).coerceIn(thumbRadius, trackWidth - thumbRadius)
-                        val newValue = valueRange.start + (newPosition - thumbRadius) / (trackWidth - thumbRadius * 2) * (valueRange.endInclusive - valueRange.start)
+                        val newPosition = (thumbPosition + delta).coerceIn(thumbRadius, trackWidthPx - thumbRadius)
+                        val newValue = valueRange.start + (newPosition - thumbRadius) / (trackWidthPx - thumbRadius * 2) * (valueRange.endInclusive - valueRange.start)
                         onValueChange(newValue.coerceIn(valueRange))
                     }
                 )

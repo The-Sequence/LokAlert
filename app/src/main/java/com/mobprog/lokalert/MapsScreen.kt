@@ -22,6 +22,8 @@ import androidx.compose.animation.core.animateDp
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.updateTransition
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -31,6 +33,7 @@ import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -44,9 +47,15 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -77,6 +86,7 @@ import com.google.android.gms.maps.model.MapStyleOptions
 import com.google.android.libraries.places.api.Places
 import com.google.android.libraries.places.api.model.AutocompleteSessionToken
 import com.google.android.libraries.places.api.net.FindAutocompletePredictionsRequest
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.maps.android.compose.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -105,6 +115,39 @@ fun MapsScreen(
     val scope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Demo Mode State
+    val demoModeManager = remember { DemoModeManager.getInstance(context) }
+    val isDemoModeEnabled by demoModeManager.isDemoModeEnabled.collectAsState()
+    val mockLocation by demoModeManager.mockLocation.collectAsState()
+    val demoDestination by demoModeManager.destination.collectAsState()
+    val demoDestinationRadius by demoModeManager.destinationRadius.collectAsState()
+    val isDemoMoving by demoModeManager.isMoving.collectAsState()
+    val demoProgress by demoModeManager.progress.collectAsState()
+    val demoSpeed by demoModeManager.speedMps.collectAsState()
+    val distanceToDestination by demoModeManager.distanceToDestination.collectAsState()
+    val restartOnboardingRequested by demoModeManager.restartOnboardingRequested.collectAsState()
+
+    // Speed slider visibility during demo movement
+    var isSpeedSliderExpanded by remember { mutableStateOf(false) }
+    var previousSpeedSliderExpanded: Boolean? by remember { mutableStateOf(null) }
+
+    // Tutorial state
+    var showDemoTutorial by remember { mutableStateOf(false) }
+    var tutorialStep by remember { mutableIntStateOf(0) }
+
+    // Spotlight bounds for tutorial
+    var playButtonBounds by remember { mutableStateOf<Rect?>(null) }
+    var speedSliderBounds by remember { mutableStateOf<Rect?>(null) }
+    var demoBannerBounds by remember { mutableStateOf<Rect?>(null) }
+
+    // Track MapsScreen container offset to adjust spotlight positioning
+    var mapsScreenWindowOffset by remember { mutableStateOf(Offset.Zero) }
+
+    // Configuration for responsive layout
+    val mapsScreenConfiguration = LocalConfiguration.current
+    val isLandscapeOrientation = mapsScreenConfiguration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val demoBannerTopPadding = if (isLandscapeOrientation) 24.dp else 48.dp // Status bar / notch padding
 
     // Set default sound URI once on launch if empty, or use the default from preferences
     LaunchedEffect(defaultAlarmSound) {
@@ -156,11 +199,11 @@ fun MapsScreen(
             mapStyleOptions = if (effectiveMapDarkMode > 0) MapStyleOptions.loadRawResourceStyle(context, R.raw.map_style_dark) else null
         )
     }
-    
+
     // Map loading state
     var isMapLoaded by remember { mutableStateOf(false) }
     var mapLoadError by remember { mutableStateOf<String?>(null) }
-    
+
     // Timeout for map loading (if not loaded after 10 seconds, show error)
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(10000)
@@ -174,7 +217,7 @@ fun MapsScreen(
     val ringtonePicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)?.let { viewModel.alarmSoundUri = it.toString() }
     }
-    
+
     // Custom file picker for audio files from storage
     val audioFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let {
@@ -190,16 +233,69 @@ fun MapsScreen(
             viewModel.alarmSoundUri = it.toString()
         }
     }
-    
+
     var showSoundOptions by remember { mutableStateOf(false) }
-    
+
     // Quick Alarm state
     var showQuickAlarm by remember { mutableStateOf(false) }
     var quickAlarmLocation by remember { mutableStateOf<LatLng?>(null) }
     var quickAlarmRadius by remember { mutableStateOf(200f) }
     var quickAlarmLocationName by remember { mutableStateOf("") }
     var userCurrentLocation by remember { mutableStateOf<LatLng?>(null) }
-    
+
+    // Demo Onboarding Flow state
+    var showDemoOnboarding by remember { mutableStateOf(false) }
+
+    // Handle restart onboarding request from alarm overlay
+    LaunchedEffect(restartOnboardingRequested) {
+        if (restartOnboardingRequested) {
+            // First show the onboarding flow
+            showDemoOnboarding = true
+            // Small delay to ensure onboarding is visible
+            kotlinx.coroutines.delay(100)
+            // Then acknowledge the request (this clears isRestartPending)
+            demoModeManager.acknowledgeRestartRequest()
+        }
+    }
+
+    // Show tutorial when demo mode first becomes active after onboarding
+    // Skip showing tutorial if a restart is pending (user selected "Try Another")
+    LaunchedEffect(isDemoModeEnabled, mockLocation, demoDestination, showDemoOnboarding, restartOnboardingRequested) {
+        if (isDemoModeEnabled && mockLocation != null && demoDestination != null && !showDemoOnboarding && !restartOnboardingRequested) {
+            // Small delay to let the UI settle
+            kotlinx.coroutines.delay(500)
+            showDemoTutorial = true
+            tutorialStep = 0
+        }
+    }
+
+    // Demo mode camera tracking state
+    var shouldFollowDemoLocation by remember { mutableStateOf(true) }
+
+    // Focus camera on mock location when demo mode is enabled and following is on
+    LaunchedEffect(isDemoModeEnabled, mockLocation, shouldFollowDemoLocation) {
+        if (isDemoModeEnabled && mockLocation != null && shouldFollowDemoLocation) {
+            mockLocation?.let { loc ->
+                cameraPositionState.animate(
+                    CameraUpdateFactory.newLatLngZoom(loc, 16f),
+                    durationMs = 500
+                )
+            }
+        }
+    }
+
+    // Also focus camera when demo mode is first enabled
+    LaunchedEffect(isDemoModeEnabled) {
+        if (isDemoModeEnabled && mockLocation != null) {
+            mockLocation?.let { loc ->
+                cameraPositionState.animate(
+                    CameraUpdateFactory.newLatLngZoom(loc, 16f),
+                    durationMs = 500
+                )
+            }
+        }
+    }
+
     // Get user's current location for context-aware search
     LaunchedEffect(showQuickAlarm) {
         if (showQuickAlarm && userCurrentLocation == null) {
@@ -222,7 +318,7 @@ fun MapsScreen(
             }
         }
     }
-    
+
     // State for pin replacement overlay
     var searchedLocation by remember { mutableStateOf<LatLng?>(null) }
     var searchedLocationName by remember { mutableStateOf("") }
@@ -230,14 +326,14 @@ fun MapsScreen(
     var showPinReplaceOverlay by remember { mutableStateOf(false) }
     var persistentPinnedLocationName by remember { mutableStateOf("") }
     var manualNameUpdate by remember { mutableStateOf(false) }
-    
+
     // Update persistent pinned location name when marker changes (only if not manually set)
     LaunchedEffect(viewModel.markerPosition) {
         if (!manualNameUpdate) {
             viewModel.markerPosition?.let { position ->
                 // Add a small delay to ensure manual updates happen first
                 kotlinx.coroutines.delay(100)
-                
+
                 // Double-check flag hasn't been set during delay
                 if (!manualNameUpdate) {
                     try {
@@ -256,7 +352,7 @@ fun MapsScreen(
             }
         }
     }
-    
+
     // Separate effect to reset the manual flag
     LaunchedEffect(manualNameUpdate) {
         if (manualNameUpdate) {
@@ -264,7 +360,7 @@ fun MapsScreen(
             manualNameUpdate = false
         }
     }
-    
+
     fun performSearch(query: String) {
         // 1. Report the search text back to the parent immediately
         onNewSearch(query)
@@ -280,7 +376,7 @@ fun MapsScreen(
                 if (!results.isNullOrEmpty()) {
                     val location = results[0]
                     val target = LatLng(location.latitude, location.longitude)
-                    
+
                     // Check if there's already a pin set
                     if (viewModel.markerPosition != null) {
                         // Get current pinned location name
@@ -291,18 +387,18 @@ fun MapsScreen(
                         currentPinnedLocationName = currentResults?.firstOrNull()?.let { addr ->
                             getReadableLocationName(addr)
                         } ?: "Pinned Location"
-                        
+
                         // Store searched location and show overlay
                         searchedLocation = target
                         searchedLocationName = query
                         showPinReplaceOverlay = true
-                        
+
                         // Animate camera to the searched location
                         cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(target, 15f))
                     } else {
                         // No existing pin, directly set new pin and animate
                         viewModel.markerPosition = target
-                        
+
                         // Geocode to get proper address
                         val addressResults = withContext(Dispatchers.IO) {
                             @Suppress("DEPRECATION")
@@ -311,15 +407,18 @@ fun MapsScreen(
                         val locationName = addressResults?.firstOrNull()?.let { addr ->
                             getReadableLocationName(addr)
                         } ?: query
-                        
+
                         // Auto-populate alarm name with best readable name
                         viewModel.alarmName = getShortAlarmName(locationName)
-                        
+
                         persistentPinnedLocationName = locationName
                         manualNameUpdate = true
-                        
+
                         cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(target, 15f))
-                        
+
+                        // Auto-open bottom sheet for alarm configuration
+                        viewModel.showBottomSheet = true
+
                         Toast.makeText(context, "Location found: $locationName", Toast.LENGTH_SHORT).show()
                     }
                 } else {
@@ -341,11 +440,25 @@ fun MapsScreen(
         }
     }
 
+    // Handle pending search query (from recent searches or other navigation)
+    LaunchedEffect(viewModel.pendingSearchQuery) {
+        viewModel.pendingSearchQuery?.let { query ->
+            // Clear the pending query first to prevent re-triggering
+            viewModel.pendingSearchQuery = null
+            // Execute the search
+            performSearch(query)
+        }
+    }
+
     // --- UI Structure ---
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp),
         floatingActionButton = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.End) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.End,
+                modifier = Modifier.navigationBarsPadding()
+            ) {
                 // My Location FAB
                 SmallFloatingActionButton(
                     onClick = {
@@ -382,7 +495,7 @@ fun MapsScreen(
                     icon = { Icon(Icons.Filled.PushPin, "Set Pin") },
                     text = { Text(if (viewModel.markerPosition == null) "Set Pin" else "Edit Pin") }
                 )
-                
+
                 // Quick Alarm FAB
                 ExtendedFloatingActionButton(
                     onClick = {
@@ -390,7 +503,7 @@ fun MapsScreen(
                         val location = cameraPositionState.position.target
                         quickAlarmLocation = location
                         quickAlarmRadius = 200f
-                        
+
                         // Geocode the location
                         scope.launch {
                             try {
@@ -406,7 +519,7 @@ fun MapsScreen(
                                 quickAlarmLocationName = "Current Location"
                             }
                         }
-                        
+
                         showQuickAlarm = true
                     },
                     modifier = Modifier.onGloballyPositioned { coordinates ->
@@ -424,6 +537,17 @@ fun MapsScreen(
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     contentColor = MaterialTheme.colorScheme.onTertiaryContainer
                 )
+
+                // Try Demo FAB - only show when demo mode is NOT active
+                if (!isDemoModeEnabled) {
+                    ExtendedFloatingActionButton(
+                        onClick = { showDemoOnboarding = true },
+                        icon = { Text("🎮", fontSize = 20.sp) },
+                        text = { Text("Try Demo") },
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f),
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
             }
         }
     ) { padding ->
@@ -440,6 +564,8 @@ fun MapsScreen(
                         size = Size(size.width.toFloat(), size.height.toFloat())
                     )
                 )
+                // Track the MapsScreen container's window offset for spotlight positioning
+                mapsScreenWindowOffset = Offset(position.x, position.y)
             }
         ) {
             // Debug: Log that we're trying to render the map
@@ -448,14 +574,14 @@ fun MapsScreen(
                 android.util.Log.d("MapsScreen", "Has location permission: $hasLocationPermission")
                 android.util.Log.d("MapsScreen", "Camera position: ${cameraPositionState.position}")
             }
-            
+
             // Track map movement for guided tour
             LaunchedEffect(cameraPositionState.isMoving) {
                 if (cameraPositionState.isMoving) {
                     onMapMoved()
                 }
             }
-            
+
             // GoogleMap component
             GoogleMap(
                 modifier = Modifier.fillMaxSize(),
@@ -469,7 +595,7 @@ fun MapsScreen(
                 onMapLongClick = { latLng ->
                     viewModel.markerPosition = latLng
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                    
+
                     // Geocode and update alarm name
                     scope.launch {
                         try {
@@ -481,10 +607,10 @@ fun MapsScreen(
                             val locationName = results?.firstOrNull()?.let { addr ->
                                 getReadableLocationName(addr)
                             } ?: "Pinned Location"
-                            
+
                             // Auto-populate alarm name with readable short name
                             viewModel.alarmName = getShortAlarmName(locationName)
-                            
+
                             // Update persistent info bar
                             persistentPinnedLocationName = locationName
                             manualNameUpdate = true
@@ -498,17 +624,17 @@ fun MapsScreen(
                 viewModel.markerPosition?.let { position ->
                     // Use stable key so marker updates instead of recreating
                     val markerState = rememberMarkerState(key = "alarm_pin", position = position)
-                    
+
                     // Track if user is dragging to prevent position updates during drag
                     var isDragging by remember { mutableStateOf(false) }
-                    
+
                     // Only update marker position when not dragging
                     LaunchedEffect(position) {
                         if (!isDragging && markerState.position != position) {
                             markerState.position = position
                         }
                     }
-                    
+
                     // Handle drag events
                     LaunchedEffect(markerState.dragState) {
                         when (markerState.dragState) {
@@ -519,7 +645,7 @@ fun MapsScreen(
                                 isDragging = false
                                 val newPosition = markerState.position
                                 viewModel.markerPosition = newPosition
-                                
+
                                 // Geocode and update alarm name and persistent location name
                                 try {
                                     val geocoder = Geocoder(context)
@@ -530,10 +656,10 @@ fun MapsScreen(
                                     val locationName = results?.firstOrNull()?.let { addr ->
                                         getReadableLocationName(addr)
                                     } ?: "Pinned Location"
-                                    
+
                                     // Auto-populate alarm name with readable short name
                                     viewModel.alarmName = getShortAlarmName(locationName)
-                                    
+
                                     // Update persistent info bar
                                     persistentPinnedLocationName = locationName
                                     manualNameUpdate = true
@@ -554,8 +680,63 @@ fun MapsScreen(
                         strokeWidth = 2f
                     )
                 }
+
+                // Demo Mode: Custom blue dot for mock location and destination
+                if (isDemoModeEnabled && mockLocation != null) {
+                    val mockMarkerState = rememberMarkerState(key = "demo_mock_location", position = mockLocation!!)
+
+                    // Update marker position when mock location changes
+                    LaunchedEffect(mockLocation) {
+                        mockLocation?.let { loc ->
+                            mockMarkerState.position = loc
+                        }
+                    }
+
+                    Marker(
+                        state = mockMarkerState,
+                        title = "Mock Location (Demo)",
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE),
+                        zIndex = 100f
+                    )
+
+                    // Demo destination marker and radius circle
+                    demoDestination?.let { dest ->
+                        val destMarkerState = rememberMarkerState(key = "demo_destination", position = dest)
+
+                        LaunchedEffect(dest) {
+                            destMarkerState.position = dest
+                        }
+
+                        Marker(
+                            state = destMarkerState,
+                            title = "Demo Destination",
+                            icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN),
+                            zIndex = 99f
+                        )
+
+                        // Destination radius circle
+                        Circle(
+                            center = dest,
+                            radius = demoDestinationRadius.toDouble(),
+                            strokeColor = Color(0xFF4CAF50),
+                            fillColor = Color(0xFF4CAF50).copy(alpha = 0.15f),
+                            strokeWidth = 3f
+                        )
+                    }
+
+                    // Draw path line from mock location to destination
+                    demoDestination?.let { dest ->
+                        mockLocation?.let { start ->
+                            Polyline(
+                                points = listOf(start, dest),
+                                color = Color(0xFF2196F3).copy(alpha = 0.6f),
+                                width = 8f
+                            )
+                        }
+                    }
+                }
             }
-            
+
             // Map loading indicator or error message
             if (!isMapLoaded || mapLoadError != null) {
                 Box(
@@ -621,13 +802,195 @@ fun MapsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    SearchSection(
-                        onSearch = { query -> performSearch(query) },
-                        onSuggestionClick = { suggestion -> performSearch(suggestion) },
-                        onSearchBarFocused = { onSearchBarTapped() },
-                        onPositioned = { bounds -> onSearchBarPositioned(bounds) }
-                    )
-                    
+                    // Demo Mode Indicator Banner
+                    if (isDemoModeEnabled) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = demoBannerTopPadding) // Status bar / notch padding
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .onGloballyPositioned { coordinates ->
+                                    val position = coordinates.positionInWindow()
+                                    val size = coordinates.size
+                                    demoBannerBounds = Rect(
+                                        offset = Offset(position.x, position.y),
+                                        size = Size(size.width.toFloat(), size.height.toFloat())
+                                    )
+                                },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = Color(0xFF2196F3).copy(alpha = 0.95f)
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Route,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(Modifier.width(12.dp))
+                                        Column {
+                                            Text(
+                                                text = "Demo Mode Active",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
+                                            val speedText = when {
+                                                demoSpeed < 2 -> "${demoSpeed} m/s • Walking"
+                                                demoSpeed < 8 -> "${demoSpeed} m/s • Jogging"
+                                                demoSpeed < 15 -> "${demoSpeed} m/s • Cycling"
+                                                else -> "${demoSpeed} m/s • Driving"
+                                            }
+                                            // Format distance display
+                                            val distanceText = if (distanceToDestination >= 1000) {
+                                                String.format("%.1f km", distanceToDestination / 1000)
+                                            } else {
+                                                "${distanceToDestination.toInt()} m"
+                                            }
+                                            Text(
+                                                text = if (isDemoMoving) "Moving • $distanceText left • ${(demoProgress * 100).toInt()}%" else "$speedText • $distanceText to destination",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color.White.copy(alpha = 0.9f)
+                                            )
+                                        }
+                                    }
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        // Follow toggle button
+                                        FilledTonalIconButton(
+                                            onClick = { shouldFollowDemoLocation = !shouldFollowDemoLocation },
+                                            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                                containerColor = if (shouldFollowDemoLocation)
+                                                    Color.White.copy(alpha = 0.3f)
+                                                else
+                                                    Color.White.copy(alpha = 0.15f),
+                                                contentColor = Color.White
+                                            ),
+                                            modifier = Modifier.size(40.dp)
+                                        ) {
+                                            Icon(
+                                                if (shouldFollowDemoLocation) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                                contentDescription = if (shouldFollowDemoLocation) "Auto-follow ON" else "Auto-follow OFF",
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+
+                                        if (isDemoMoving) {
+                                            FilledTonalIconButton(
+                                                onClick = { demoModeManager.stopMovement() },
+                                                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                                    containerColor = Color.White.copy(alpha = 0.25f),
+                                                    contentColor = Color.White
+                                                ),
+                                                modifier = Modifier.size(40.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Pause,
+                                                    contentDescription = "Pause",
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        } else {
+                                            FilledTonalIconButton(
+                                                onClick = { demoModeManager.startMovement() },
+                                                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                                    containerColor = Color(0xFF4CAF50).copy(alpha = 0.9f),
+                                                    contentColor = Color.White
+                                                ),
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .onGloballyPositioned { coordinates ->
+                                                        val position = coordinates.positionInWindow()
+                                                        val size = coordinates.size
+                                                        playButtonBounds = Rect(
+                                                            offset = Offset(position.x, position.y),
+                                                            size = Size(size.width.toFloat(), size.height.toFloat())
+                                                        )
+                                                    }
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.PlayArrow,
+                                                    contentDescription = "Play",
+                                                    modifier = Modifier.size(22.dp)
+                                                )
+                                            }
+                                        }
+
+                                        if (!isDemoMoving && demoProgress > 0.01f) {
+                                            FilledTonalIconButton(
+                                                onClick = { demoModeManager.resetToStart() },
+                                                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                                    containerColor = Color.White.copy(alpha = 0.25f),
+                                                    contentColor = Color.White
+                                                ),
+                                                modifier = Modifier.size(40.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Refresh,
+                                                    contentDescription = "Reset",
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+                                        
+                                        // Close/Disable Demo Mode button
+                                        FilledTonalIconButton(
+                                            onClick = { 
+                                                demoModeManager.setDemoModeEnabled(false)
+                                            },
+                                            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                                containerColor = Color.White.copy(alpha = 0.2f),
+                                                contentColor = Color.White
+                                            ),
+                                            modifier = Modifier.size(40.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Close,
+                                                contentDescription = "Exit Demo Mode",
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Search bar - hide during demo movement to prevent UI overlap
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = !isDemoMoving,
+                        enter = androidx.compose.animation.fadeIn(
+                            animationSpec = androidx.compose.animation.core.tween(300)
+                        ),
+                        exit = androidx.compose.animation.fadeOut(
+                            animationSpec = androidx.compose.animation.core.tween(300)
+                        )
+                    ) {
+                        SearchSection(
+                            onSearch = { query -> performSearch(query) },
+                            onSuggestionClick = { suggestion -> performSearch(suggestion) },
+                            onSearchBarFocused = { onSearchBarTapped() },
+                            onPositioned = { bounds -> onSearchBarPositioned(bounds) },
+                            applyTopPadding = !isDemoModeEnabled // Don't apply internal top padding when demo banner is above
+                        )
+                    }
+
                     // Persistent pinned location info bar
                     if (viewModel.markerPosition != null && !showPinReplaceOverlay) {
                         Card(
@@ -666,14 +1029,123 @@ fun MapsScreen(
                     }
                 }
             }
-            
+
+            // FLOATING SPEED SLIDER - positioned at bottom, doesn't push content
+            if (isDemoModeEnabled && isDemoMoving) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(start = 16.dp, bottom = 100.dp),
+                    contentAlignment = Alignment.BottomStart
+                ) {
+                    Card(
+                        modifier = Modifier
+                            .widthIn(max = 280.dp)
+                            .onGloballyPositioned { coordinates ->
+                                val position = coordinates.positionInWindow()
+                                val size = coordinates.size
+                                speedSliderBounds = Rect(
+                                    offset = Offset(position.x, position.y),
+                                    size = Size(size.width.toFloat(), size.height.toFloat())
+                                )
+                            },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color(0xFF2196F3).copy(alpha = 0.95f)
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            // Header row with collapse button
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { isSpeedSliderExpanded = !isSpeedSliderExpanded },
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.PlayArrow,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            "Speed: ${demoSpeed} m/s",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            when {
+                                                demoSpeed < 2 -> "Walking"
+                                                demoSpeed < 8 -> "Jogging"
+                                                demoSpeed < 15 -> "Cycling"
+                                                else -> "Driving"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White.copy(alpha = 0.8f)
+                                        )
+                                    }
+                                }
+                                // Explicit collapse button
+                                IconButton(
+                                    onClick = { isSpeedSliderExpanded = !isSpeedSliderExpanded },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        if (isSpeedSliderExpanded) Icons.Default.Close else Icons.Default.PlayArrow,
+                                        contentDescription = if (isSpeedSliderExpanded) "Collapse" else "Expand",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+
+                            // Expandable slider
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = isSpeedSliderExpanded,
+                                enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                                exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+                            ) {
+                                Column(modifier = Modifier.padding(top = 8.dp)) {
+                                    Slider(
+                                        value = demoSpeed.toFloat(),
+                                        onValueChange = { demoModeManager.setSpeed(it.toInt()) },
+                                        valueRange = 1f..50f,
+                                        steps = 48,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = SliderDefaults.colors(
+                                            thumbColor = Color.White,
+                                            activeTrackColor = Color.White,
+                                            inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                                        )
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("1", fontSize = 10.sp, color = Color.White.copy(alpha = 0.7f))
+                                        Text("25", fontSize = 10.sp, color = Color.White.copy(alpha = 0.7f))
+                                        Text("50 m/s", fontSize = 10.sp, color = Color.White.copy(alpha = 0.7f))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Pin replacement overlay - below search bar and info bar
             if (showPinReplaceOverlay && searchedLocation != null) {
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
                         .padding(top = 180.dp) // Below search bar + info bar
                         .fillMaxWidth(0.75f) // Smaller width
+                        .padding(horizontal = 32.dp) // Center horizontally
                 ) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -695,12 +1167,12 @@ fun MapsScreen(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                             )
-                            
+
                             Button(
                                 onClick = {
                                     // Replace pin with searched location
                                     viewModel.markerPosition = searchedLocation
-                                    
+
                                     // Geocode to get better location name
                                     scope.launch {
                                         try {
@@ -712,11 +1184,11 @@ fun MapsScreen(
                                             val locationName = results?.firstOrNull()?.let { addr ->
                                                 getReadableLocationName(addr)
                                             } ?: searchedLocationName
-                                            
+
                                             // Update persistent info bar
                                             persistentPinnedLocationName = locationName
                                             manualNameUpdate = true
-                                            
+
                                             // Auto-populate alarm name with readable short name
                                             viewModel.alarmName = getShortAlarmName(locationName)
                                         } catch (e: Exception) {
@@ -724,7 +1196,7 @@ fun MapsScreen(
                                             viewModel.alarmName = getShortAlarmName(searchedLocationName)
                                         }
                                     }
-                                    
+
                                     // Close overlay and clear search state
                                     showPinReplaceOverlay = false
                                     searchedLocation = null
@@ -745,7 +1217,7 @@ fun MapsScreen(
                                     fontWeight = FontWeight.Medium
                                 )
                             }
-                            
+
                             TextButton(
                                 onClick = {
                                     showPinReplaceOverlay = false
@@ -760,7 +1232,6 @@ fun MapsScreen(
                 }
             }
         }
-    }
 
     // --- Bottom Sheet Form ---
     if (viewModel.showBottomSheet) {
@@ -768,14 +1239,14 @@ fun MapsScreen(
         LaunchedEffect(Unit) {
             searchedLocation = null
         }
-        
+
         var sliderActive by remember { mutableStateOf(false) }
         val sheetAlpha = if (sliderActive) 0.5f else 1f
         val scrimAlpha = if (sliderActive) 0.05f else 0.32f
         val windowTransition = updateTransition(targetState = sliderActive, label = "WindowFoldTransition")
         val sheetMaxHeight by windowTransition.animateDp(
             label = "SheetMaxHeight",
-            transitionSpec = { 
+            transitionSpec = {
                 if (targetState) {
                     // Folding down - smooth with slight bounce
                     spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessLow)
@@ -829,9 +1300,14 @@ fun MapsScreen(
                             }
                         }
                     } else {
-                        // Normal save - new alarm
+                        // Normal save - new alarm (including when using saved location)
+                        // If using a saved location and no name provided, suggest a name
+                        if (viewModel.alarmName.isBlank() && viewModel.selectedSavedLocationForNewAlarm != null) {
+                            viewModel.alarmName = "New ${viewModel.selectedSavedLocationForNewAlarm!!.name}"
+                        }
                         viewModel.saveAlarm {
                             searchedLocation = null // Clear preview pin after saving
+                            onAlarmCreated() // Notify that alarm was created
                             scope.launch { sheetState.hide() }.invokeOnCompletion {
                                 onDone()
                             }
@@ -843,7 +1319,7 @@ fun MapsScreen(
             }
         }
     }
-    
+
     // Sound selection options dialog
     if (showSoundOptions) {
         AlertDialog(
@@ -859,9 +1335,9 @@ fun MapsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    
+
                     Spacer(modifier = Modifier.height(8.dp))
-                    
+
                     // System Ringtones option
                     Card(
                         modifier = Modifier
@@ -911,7 +1387,7 @@ fun MapsScreen(
                             }
                         }
                     }
-                    
+
                     // Custom audio file option
                     Card(
                         modifier = Modifier
@@ -959,7 +1435,7 @@ fun MapsScreen(
             }
         )
     }
-    
+
     // Quick Alarm Dialog
     if (showQuickAlarm && quickAlarmLocation != null) {
         QuickAlarmDialog(
@@ -974,14 +1450,14 @@ fun MapsScreen(
             onConfirm = { location, name, radius ->
                 // Create quick alarm with today only
                 val currentDay = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
-                
+
                 // Use default alarm sound from settings, or system default if not set
                 val soundUri = if (defaultAlarmSound.isNotEmpty()) {
                     defaultAlarmSound
                 } else {
                     RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString()
                 }
-                
+
                 val alarm = LocationAlarm(
                     name = getShortAlarmName(name),
                     latitude = location.latitude,
@@ -993,11 +1469,11 @@ fun MapsScreen(
                     isEnabled = true,
                     isFavorite = false
                 )
-                
+
                 // Save the alarm using ViewModel's DAO
                 scope.launch {
                     viewModel.dao.insertAlarm(alarm)
-                    
+
                     withContext(Dispatchers.Main) {
                         // Show success message
                         Toast.makeText(
@@ -1005,7 +1481,7 @@ fun MapsScreen(
                             "⚡ Quick alarm set for ${getShortAlarmName(name)}!",
                             Toast.LENGTH_SHORT
                         ).show()
-                        
+
                         // Close dialog and navigate
                         showQuickAlarm = false
                         kotlinx.coroutines.delay(300)
@@ -1019,10 +1495,261 @@ fun MapsScreen(
             }
         )
     }
+
+    // Demo Onboarding Flow Dialog
+    if (showDemoOnboarding) {
+        DemoOnboardingFlow(
+            onDismiss = { showDemoOnboarding = false },
+            onComplete = { showDemoOnboarding = false },
+            darkMode = darkMode
+        )
+    }
+
+    // Auto-expand floating speed slider during tutorial step 1 so spotlight hits the controls
+    // Also auto-start demo movement for step 1 since the slider only appears when moving
+    LaunchedEffect(showDemoTutorial, tutorialStep) {
+        if (showDemoTutorial && tutorialStep == 1) {
+            // Start demo movement if not already moving (slider only appears when moving)
+            if (!isDemoMoving) {
+                demoModeManager.startMovement()
+            }
+            // Small delay to let the slider appear
+            kotlinx.coroutines.delay(300)
+            // Save previous state and expand
+            if (previousSpeedSliderExpanded == null) {
+                previousSpeedSliderExpanded = isSpeedSliderExpanded
+            }
+            isSpeedSliderExpanded = true
+        } else if (!showDemoTutorial && previousSpeedSliderExpanded != null) {
+            // Only restore when tutorial is completely dismissed
+            isSpeedSliderExpanded = previousSpeedSliderExpanded!!
+            previousSpeedSliderExpanded = null
+        }
+    }
+
+    // Demo Tutorial Overlay - shows after demo setup completes
+    if (showDemoTutorial && isDemoModeEnabled && !showDemoOnboarding) {
+        val rawSpotlightBounds = when (tutorialStep) {
+            0 -> playButtonBounds
+            1 -> speedSliderBounds
+            2 -> demoBannerBounds
+            else -> null
+        }
+
+        // Adjust spotlight bounds by subtracting the MapsScreen container's window offset
+        // This converts window coordinates to local MapsScreen coordinates
+        val adjustedSpotlightBounds = rawSpotlightBounds?.let { bounds ->
+            Rect(
+                offset = Offset(
+                    bounds.left - mapsScreenWindowOffset.x,
+                    bounds.top - mapsScreenWindowOffset.y
+                ),
+                size = Size(bounds.width, bounds.height)
+            )
+        }
+
+        DemoTutorialOverlay(
+            tutorialStep = tutorialStep,
+            spotlightBounds = adjustedSpotlightBounds,
+            onNextStep = {
+                if (tutorialStep < 2) {
+                    tutorialStep++
+                } else {
+                    showDemoTutorial = false
+                }
+            },
+            onDismiss = { showDemoTutorial = false }
+        )
+    }
+}
 }
 
-// --- EXTRACTED COMPOSABLES AND HELPERS ---
+/**
+ * Tutorial overlay that guides users through demo mode controls with spotlight effect.
+ * Uses the same PathFillType.EvenOdd approach as the main GuidedTourOverlay
+ */
+@Composable
+fun DemoTutorialOverlay(
+    tutorialStep: Int,
+    spotlightBounds: Rect?,
+    onNextStep: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val tutorialMessages = listOf(
+        Triple("🎮 Demo Mode Ready!", "Your mock journey is set up! The blue marker shows your simulated location.", "Tap the green Play button to start"),
+        Triple("⚡ Adjust Speed", "When moving, tap the speed panel at the bottom to adjust how fast you travel.", "Tap the speed control to expand"),
+        Triple("🎯 Watch the Magic!", "As you approach the destination (green circle), the alarm will trigger automatically!", "Tap anywhere to close")
+    )
 
+    val (title, description, action) = tutorialMessages[tutorialStep]
+
+    // Pulsing animation - same approach as GuidedTourOverlay
+    var pulsePhase by remember { mutableStateOf(0f) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            pulsePhase = (pulsePhase + 0.05f) % (2f * 3.14159f)
+            kotlinx.coroutines.delay(30)
+        }
+    }
+    val pulseAlpha = (kotlin.math.sin(pulsePhase.toDouble()) * 0.3 + 0.7).toFloat()
+    val pulseScale = (kotlin.math.sin(pulsePhase.toDouble()) * 0.02 + 1.02).toFloat()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Canvas for spotlight effect - using EvenOdd fill type like main tutorial
+        androidx.compose.foundation.Canvas(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            val overlayPath = androidx.compose.ui.graphics.Path().apply {
+                fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd
+                addRect(androidx.compose.ui.geometry.Rect(0f, 0f, size.width, size.height))
+            }
+
+            // Cut out spotlight if bounds are available
+            spotlightBounds?.let { bounds ->
+                val isCircular = tutorialStep == 0 // Circle for Play button
+                val padding = 36f // ~12dp
+
+                if (isCircular) {
+                    val centerX = bounds.left + bounds.width / 2
+                    val centerY = bounds.top + bounds.height / 2
+                    val radius = (maxOf(bounds.width, bounds.height) / 2) + padding
+
+                    overlayPath.addOval(
+                        androidx.compose.ui.geometry.Rect(
+                            center = androidx.compose.ui.geometry.Offset(centerX, centerY),
+                            radius = radius
+                        )
+                    )
+
+                    // Draw pulsing highlight border
+                    drawCircle(
+                        color = Color(0xFF4CAF50).copy(alpha = pulseAlpha),
+                        radius = radius * pulseScale,
+                        center = androidx.compose.ui.geometry.Offset(centerX, centerY),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 12f)
+                    )
+                } else {
+                    val spotlightRect = androidx.compose.ui.geometry.RoundRect(
+                        left = bounds.left - padding,
+                        top = bounds.top - padding,
+                        right = bounds.right + padding,
+                        bottom = bounds.bottom + padding,
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(48f)
+                    )
+
+                    overlayPath.addRoundRect(spotlightRect)
+
+                    // Draw pulsing highlight border
+                    val scaledPadding = padding * pulseScale
+                    drawRoundRect(
+                        color = Color(0xFF4CAF50).copy(alpha = pulseAlpha),
+                        topLeft = androidx.compose.ui.geometry.Offset(bounds.left - scaledPadding, bounds.top - scaledPadding),
+                        size = androidx.compose.ui.geometry.Size(bounds.width + scaledPadding * 2, bounds.height + scaledPadding * 2),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(48f),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 12f)
+                    )
+                }
+            }
+
+            // Fill overlay with semi-transparent black
+            drawPath(
+                path = overlayPath,
+                color = Color.Black.copy(alpha = 0.7f)
+            )
+        }
+
+        // Dialog card - centered
+        Card(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth(0.9f)
+                .padding(16.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Step indicator
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    repeat(3) { index ->
+                        Box(
+                            modifier = Modifier
+                                .size(if (index == tutorialStep) 12.dp else 8.dp)
+                                .background(
+                                    if (index == tutorialStep)
+                                        MaterialTheme.colorScheme.primary
+                                    else
+                                        MaterialTheme.colorScheme.outlineVariant,
+                                    CircleShape
+                                )
+                        )
+                    }
+                }
+
+                Text(
+                    title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        "👆 $action",
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+
+                Spacer(Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Skip Tutorial")
+                    }
+
+                    Button(
+                        onClick = onNextStep,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(if (tutorialStep < 2) "Next" else "Got it!")
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Quick Alarm setup dialog - streamlined for speed
+ */
 @SuppressLint("UnrememberedMutableState")
 @Composable
 fun QuickAlarmDialog(
@@ -1039,7 +1766,7 @@ fun QuickAlarmDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    
+
     // Get sound name for display
     val soundName = remember(defaultAlarmSound) {
         if (defaultAlarmSound.isEmpty()) {
@@ -1053,10 +1780,10 @@ fun QuickAlarmDialog(
             }
         }
     }
-    
+
     var currentLocation by remember { mutableStateOf(quickAlarmLocation) }
     var currentLocationName by remember { mutableStateOf(quickAlarmLocationName) }
-    
+
     // Search function using Geocoder (same as main map for consistency)
     fun performQuickAlarmSearch(query: String) {
         scope.launch {
@@ -1070,32 +1797,41 @@ fun QuickAlarmDialog(
                 if (!results.isNullOrEmpty()) {
                     val location = results[0]
                     val target = LatLng(location.latitude, location.longitude)
-                    
+
                     // Use the selected suggestion text directly as the name
                     // to avoid double-geocoding which causes inaccuracy
                     currentLocation = target
                     currentLocationName = query
                     onLocationChange(currentLocation, currentLocationName)
-                    
+
                     Toast.makeText(context, "Location set: $query", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(context, "Location not found. Try a different search term.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        "Location not found. Try a different search term.",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                Toast.makeText(context, "Search error: ${e.message ?: "Unknown error"}", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    context,
+                    "Search error: ${e.message ?: "Unknown error"}",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
     }
-    
+
     // Detect screen size for responsive layout
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
     val screenHeight = configuration.screenHeightDp.dp
-    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val isLandscape =
+        configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val isWideScreen = screenWidth > 600.dp || (isLandscape && screenWidth > 500.dp)
     val isCompactHeight = screenHeight < 500.dp
-    
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -1130,7 +1866,7 @@ fun QuickAlarmDialog(
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.height(8.dp))
-                            
+
                             // Mini map preview
                             Card(
                                 modifier = Modifier
@@ -1141,14 +1877,14 @@ fun QuickAlarmDialog(
                                 val quickMapCameraState = rememberCameraPositionState {
                                     position = CameraPosition.fromLatLngZoom(currentLocation, 15f)
                                 }
-                                
+
                                 LaunchedEffect(currentLocation) {
                                     quickMapCameraState.animate(
                                         CameraUpdateFactory.newLatLngZoom(currentLocation, 15f),
                                         durationMs = 500
                                     )
                                 }
-                                
+
                                 GoogleMap(
                                     modifier = Modifier.fillMaxSize(),
                                     cameraPositionState = quickMapCameraState,
@@ -1176,7 +1912,7 @@ fun QuickAlarmDialog(
                                 }
                             }
                         }
-                        
+
                         // Right side - Controls
                         Column(
                             modifier = Modifier
@@ -1189,9 +1925,13 @@ fun QuickAlarmDialog(
                             // Search
                             QuickSearchSection(
                                 onSearch = { query -> performQuickAlarmSearch(query) },
-                                onSuggestionClick = { suggestion -> performQuickAlarmSearch(suggestion) }
+                                onSuggestionClick = { suggestion ->
+                                    performQuickAlarmSearch(
+                                        suggestion
+                                    )
+                                }
                             )
-                            
+
                             // Radius slider
                             Column(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1214,14 +1954,17 @@ fun QuickAlarmDialog(
                                     ) {
                                         Text(
                                             "${quickAlarmRadius.toInt()}m",
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            modifier = Modifier.padding(
+                                                horizontal = 8.dp,
+                                                vertical = 4.dp
+                                            ),
                                             style = MaterialTheme.typography.bodySmall,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.onTertiaryContainer
                                         )
                                     }
                                 }
-                                
+
                                 Slider(
                                     value = quickAlarmRadius,
                                     onValueChange = onRadiusChange,
@@ -1230,7 +1973,7 @@ fun QuickAlarmDialog(
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
-                            
+
                             // Info card
                             Card(
                                 colors = CardDefaults.cardColors(
@@ -1254,7 +1997,7 @@ fun QuickAlarmDialog(
                                     }
                                 }
                             }
-                            
+
                             // Action buttons
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1266,10 +2009,14 @@ fun QuickAlarmDialog(
                                 ) {
                                     Text("Cancel", fontSize = 12.sp)
                                 }
-                                
+
                                 Button(
                                     onClick = {
-                                        onConfirm(currentLocation, currentLocationName, quickAlarmRadius)
+                                        onConfirm(
+                                            currentLocation,
+                                            currentLocationName,
+                                            quickAlarmRadius
+                                        )
                                     },
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(12.dp)
@@ -1290,208 +2037,215 @@ fun QuickAlarmDialog(
                     Column(
                         modifier = Modifier.fillMaxSize()
                     ) {
-                    // Header - ample padding
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                top = if (isWideScreen) 24.dp else 20.dp,
-                                bottom = if (isWideScreen) 12.dp else 10.dp
-                            ),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            "⚡ Quick Alarm",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            "Set up in seconds!",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    
-                    // Content with map, slider, info - scrollable with better spacing
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = if (isWideScreen) 24.dp else 20.dp),
-                        verticalArrangement = Arrangement.spacedBy(if (isWideScreen) 20.dp else 14.dp)
-                    ) {
-                        // Spacer for search bar that overlays
-                        Spacer(modifier = Modifier.height(if (isWideScreen) 64.dp else 56.dp))
-                        
-                        // Mini map preview
-                        Card(
+                        // Header - ample padding
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(if (isWideScreen) 240.dp else 200.dp),
-                            shape = RoundedCornerShape(12.dp)
+                                .padding(
+                                    top = if (isWideScreen) 24.dp else 20.dp,
+                                    bottom = if (isWideScreen) 12.dp else 10.dp
+                                ),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            val quickMapCameraState = rememberCameraPositionState {
-                                position = CameraPosition.fromLatLngZoom(currentLocation, 15f)
-                            }
-                            
-                            // Animate camera when location changes
-                            LaunchedEffect(currentLocation) {
-                                quickMapCameraState.animate(
-                                    CameraUpdateFactory.newLatLngZoom(currentLocation, 15f),
-                                    durationMs = 500
-                                )
-                            }
-                            
-                            GoogleMap(
-                                modifier = Modifier.fillMaxSize(),
-                                cameraPositionState = quickMapCameraState,
-                                properties = mapProperties,
-                                uiSettings = MapUiSettings(
-                                    zoomControlsEnabled = false,
-                                    myLocationButtonEnabled = false,
-                                    scrollGesturesEnabled = false,
-                                    zoomGesturesEnabled = false,
-                                    tiltGesturesEnabled = false,
-                                    rotationGesturesEnabled = false
-                                )
-                            ) {
-                                Marker(
-                                    state = MarkerState(position = currentLocation),
-                                    title = "Alarm Location"
-                                )
-                                Circle(
-                                    center = currentLocation,
-                                    radius = quickAlarmRadius.toDouble(),
-                                    strokeColor = MaterialTheme.colorScheme.tertiary,
-                                    fillColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f),
-                                    strokeWidth = 3f
-                                )
-                            }
+                            Text(
+                                "⚡ Quick Alarm",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "Set up in seconds!",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
-                        
-                        // Radius slider
+
+                        // Content with map, slider, info - scrollable with better spacing
                         Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = if (isWideScreen) 24.dp else 20.dp),
+                            verticalArrangement = Arrangement.spacedBy(if (isWideScreen) 20.dp else 14.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                            // Spacer for search bar that overlays
+                            Spacer(modifier = Modifier.height(if (isWideScreen) 64.dp else 56.dp))
+
+                            // Mini map preview
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(if (isWideScreen) 240.dp else 200.dp),
+                                shape = RoundedCornerShape(12.dp)
                             ) {
-                                Text(
-                                    "Alert Radius",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                                val quickMapCameraState = rememberCameraPositionState {
+                                    position = CameraPosition.fromLatLngZoom(currentLocation, 15f)
+                                }
+
+                                // Animate camera when location changes
+                                LaunchedEffect(currentLocation) {
+                                    quickMapCameraState.animate(
+                                        CameraUpdateFactory.newLatLngZoom(currentLocation, 15f),
+                                        durationMs = 500
+                                    )
+                                }
+
+                                GoogleMap(
+                                    modifier = Modifier.fillMaxSize(),
+                                    cameraPositionState = quickMapCameraState,
+                                    properties = mapProperties,
+                                    uiSettings = MapUiSettings(
+                                        zoomControlsEnabled = false,
+                                        myLocationButtonEnabled = false,
+                                        scrollGesturesEnabled = false,
+                                        zoomGesturesEnabled = false,
+                                        tiltGesturesEnabled = false,
+                                        rotationGesturesEnabled = false
                                     )
                                 ) {
-                                    Text(
-                                        "${quickAlarmRadius.toInt()}m",
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    Marker(
+                                        state = MarkerState(position = currentLocation),
+                                        title = "Alarm Location"
+                                    )
+                                    Circle(
+                                        center = currentLocation,
+                                        radius = quickAlarmRadius.toDouble(),
+                                        strokeColor = MaterialTheme.colorScheme.tertiary,
+                                        fillColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f),
+                                        strokeWidth = 3f
                                     )
                                 }
                             }
-                            
-                            Slider(
-                                value = quickAlarmRadius,
-                                onValueChange = onRadiusChange,
-                                valueRange = 100f..500f,
-                                steps = 7,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            
-                            Row(
+
+                            // Radius slider
+                            Column(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Text(
-                                    "100m",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "Alert Radius",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Card(
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                                        )
+                                    ) {
+                                        Text(
+                                            "${quickAlarmRadius.toInt()}m",
+                                            modifier = Modifier.padding(
+                                                horizontal = 12.dp,
+                                                vertical = 6.dp
+                                            ),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                                        )
+                                    }
+                                }
+
+                                Slider(
+                                    value = quickAlarmRadius,
+                                    onValueChange = onRadiusChange,
+                                    valueRange = 100f..500f,
+                                    steps = 7,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
-                                Text(
-                                    "500m",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        "100m",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        "500m",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
-                        }
-                        
-                        // Info card
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-                            )
-                        ) {
+
+                            // Info card
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("ℹ️", style = MaterialTheme.typography.titleMedium)
+                                    Column {
+                                        Text(
+                                            "This alarm will run today only",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            "Uses $soundName",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Action buttons at bottom
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .padding(
+                                        horizontal = if (isWideScreen) 24.dp else 20.dp,
+                                        vertical = if (isWideScreen) 20.dp else 16.dp
+                                    ),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Text("ℹ️", style = MaterialTheme.typography.titleMedium)
-                                Column {
-                                    Text(
-                                        "This alarm will run today only",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Medium
+                                TextButton(
+                                    onClick = onDismiss,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Cancel")
+                                }
+
+                                Button(
+                                    onClick = {
+                                        onConfirm(
+                                            currentLocation,
+                                            currentLocationName,
+                                            quickAlarmRadius
+                                        )
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
                                     )
-                                    Text(
-                                        "Uses $soundName",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Set Alarm", fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
                     }
-                    
-                    // Action buttons at bottom
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                horizontal = if (isWideScreen) 24.dp else 20.dp,
-                                vertical = if (isWideScreen) 20.dp else 16.dp
-                            ),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        TextButton(
-                            onClick = onDismiss,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Cancel")
-                        }
-                        
-                        Button(
-                            onClick = {
-                                onConfirm(currentLocation, currentLocationName, quickAlarmRadius)
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Check,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text("Set Alarm", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    }
                 }
-                
+
                 // SearchSection overlay - positioned on top of content (only for portrait)
                 if (!isLandscape || !isCompactHeight) {
                     Column(
@@ -1510,649 +2264,4 @@ fun QuickAlarmDialog(
             }
         }
     }
-}
-
-// --- EXTRACTED COMPOSABLES AND HELPERS ---
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun QuickSearchSection(
-    onSearch: ((String) -> Unit)? = null,
-    onSuggestionClick: ((String) -> Unit)? = null
-) {
-    var searchText by remember { mutableStateOf("") }
-    var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
-    var expanded by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    var userHasSelectedSuggestion by remember { mutableStateOf(false) }
-    val keyboardController = LocalSoftwareKeyboardController.current
-
-    // Places Client Setup
-    val placesClient = remember {
-        try {
-            if (!Places.isInitialized()) {
-                val packageInfo = context.packageManager.getApplicationInfo(
-                    context.packageName,
-                    android.content.pm.PackageManager.GET_META_DATA
-                )
-                val apiKey = packageInfo.metaData?.getString("com.google.android.geo.API_KEY")
-                if (apiKey != null) {
-                    Places.initialize(context, apiKey)
-                }
-            }
-            if (Places.isInitialized()) {
-                Places.createClient(context)
-            } else {
-                null
-            }
-        } catch (e: Exception) {
-            null
-        }
-    }
-    val token = remember { AutocompleteSessionToken.newInstance() }
-
-    // Autocomplete Logic - limit to 3 suggestions
-    LaunchedEffect(searchText) {
-        if (userHasSelectedSuggestion) {
-            userHasSelectedSuggestion = false
-            return@LaunchedEffect
-        }
-        if (searchText.isNotEmpty() && placesClient != null) {
-            try {
-                val request = FindAutocompletePredictionsRequest.builder()
-                    .setSessionToken(token)
-                    .setQuery(searchText)
-                    .build()
-
-                placesClient.findAutocompletePredictions(request)
-                    .addOnSuccessListener { response ->
-                        suggestions = response.autocompletePredictions
-                            .take(3) // Limit to 3 suggestions
-                            .map { it.getFullText(null).toString() }
-                        expanded = suggestions.isNotEmpty()
-                    }
-                    .addOnFailureListener {
-                        suggestions = emptyList()
-                        expanded = false
-                    }
-            } catch (e: Exception) {
-                suggestions = emptyList()
-                expanded = false
-            }
-        } else {
-            suggestions = emptyList()
-            expanded = false
-        }
-    }
-
-    // Compact UI for overlay
-    Surface(
-        shadowElevation = 8.dp,
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column {
-            OutlinedTextField(
-                value = searchText,
-                onValueChange = { searchText = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { 
-                    Text(
-                        if (placesClient != null) "Search location..." else "Search unavailable",
-                        fontSize = 14.sp
-                    ) 
-                },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                trailingIcon = {
-                    if (searchText.isNotEmpty()) {
-                        Icon(
-                            Icons.Default.Close,
-                            contentDescription = "Clear",
-                            modifier = Modifier.clickable {
-                                searchText = ""
-                                expanded = false
-                                keyboardController?.hide()
-                            }
-                        )
-                    }
-                },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent
-                ),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(
-                    onSearch = {
-                        if (searchText.isNotEmpty()) {
-                            onSearch?.invoke(searchText)
-                            expanded = false
-                            keyboardController?.hide()
-                        }
-                    }
-                )
-            )
-
-            AnimatedVisibility(visible = expanded) {
-                Column(modifier = Modifier.padding(bottom = 8.dp)) {
-                    Divider(modifier = Modifier.padding(horizontal = 16.dp))
-                    suggestions.forEach { suggestion ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    userHasSelectedSuggestion = true
-                                    searchText = suggestion
-                                    expanded = false
-                                    onSuggestionClick?.invoke(suggestion)
-                                    keyboardController?.hide()
-                                }
-                                .padding(vertical = 10.dp, horizontal = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.LocationOn,
-                                contentDescription = null,
-                                tint = Color.Gray,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = suggestion,
-                                fontSize = 13.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun EditLocationForm(
-    viewModel: MapsViewModel,
-    onPickRingtone: () -> Unit,
-    onCancel: () -> Unit,
-    onSave: () -> Unit,
-    onSliderActiveChange: (Boolean) -> Unit
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    // Sound preview state
-    var isPlayingPreview by remember { mutableStateOf(false) }
-    var mediaPlayer by remember { mutableStateOf<android.media.MediaPlayer?>(null) }
-    // Clean up media player on dispose
-    DisposableEffect(Unit) {
-        onDispose {
-            mediaPlayer?.release()
-            mediaPlayer = null
-        }
-    }
-    // Play preview function
-    fun playPreviewSound() {
-        if (isPlayingPreview) {
-            mediaPlayer?.stop()
-            mediaPlayer?.release()
-            mediaPlayer = null
-            isPlayingPreview = false
-        } else {
-            try {
-                val uri = if (viewModel.alarmSoundUri.isNotEmpty()) {
-                    Uri.parse(viewModel.alarmSoundUri)
-                } else {
-                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                }
-                mediaPlayer = android.media.MediaPlayer().apply {
-                    setDataSource(context, uri)
-                    setAudioAttributes(
-                        android.media.AudioAttributes.Builder()
-                            .setUsage(android.media.AudioAttributes.USAGE_ALARM)
-                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                            .build()
-                    )
-                    if (viewModel.isGradualVolume) {
-                        setVolume(0.2f, 0.2f)
-                    }
-                    prepare()
-                    start()
-                    setOnCompletionListener {
-                        isPlayingPreview = false
-                        release()
-                        mediaPlayer = null
-                    }
-                }
-                isPlayingPreview = true
-                if (viewModel.isGradualVolume) {
-                    scope.launch {
-                        var currentVolume = 0.2f
-                        while (isPlayingPreview && currentVolume < 1.0f) {
-                            kotlinx.coroutines.delay(500)
-                            currentVolume = (currentVolume + 0.1f).coerceAtMost(1.0f)
-                            try { mediaPlayer?.setVolume(currentVolume, currentVolume) } catch (_: Exception) { break }
-                        }
-                    }
-                }
-                scope.launch {
-                    kotlinx.coroutines.delay(5000)
-                    if (isPlayingPreview) {
-                        mediaPlayer?.stop()
-                        mediaPlayer?.release()
-                        mediaPlayer = null
-                        isPlayingPreview = false
-                    }
-                }
-            } catch (_: Exception) {
-                isPlayingPreview = false
-            }
-        }
-    }
-    
-    // Detect screen size for responsive layout
-    val configuration = LocalConfiguration.current
-    val screenHeight = configuration.screenHeightDp.dp
-    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-    val isCompactHeight = screenHeight < 400.dp || (isLandscape && screenHeight < 500.dp)
-    val scrollState = rememberScrollState()
-    val sliderInteractionSource = remember { MutableInteractionSource() }
-    var sliderActive by remember { mutableStateOf(false) }
-
-    LaunchedEffect(sliderInteractionSource) {
-        sliderInteractionSource.interactions.collect { interaction ->
-            when (interaction) {
-                is PressInteraction.Press, is DragInteraction.Start -> {
-                    if (!sliderActive) {
-                        sliderActive = true
-                        onSliderActiveChange(true)
-                    }
-                }
-                is PressInteraction.Release, is PressInteraction.Cancel,
-                is DragInteraction.Stop, is DragInteraction.Cancel -> {
-                    if (sliderActive) {
-                        sliderActive = false
-                        onSliderActiveChange(false)
-                    }
-                }
-            }
-        }
-    }
-
-    val transition = updateTransition(targetState = sliderActive, label = "ContentCollapseTransition")
-    
-    // Animate upper content collapsing/folding down - synced animations
-    val upperContentHeight by transition.animateDp(
-        label = "UpperContentHeight",
-        transitionSpec = { 
-            if (targetState) {
-                // Folding down - smooth with slight bounce
-                spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessLow)
-            } else {
-                // Folding up - smooth, no bounce
-                spring(dampingRatio = 1f, stiffness = Spring.StiffnessMedium)
-            }
-        }
-    ) { active -> if (active) 0.dp else 2000.dp }
-    
-    val upperContentAlpha by transition.animateFloat(
-        label = "UpperContentAlpha",
-        transitionSpec = { 
-            // Same timing as height for perfect sync
-            if (targetState) {
-                spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessLow)
-            } else {
-                spring(dampingRatio = 1f, stiffness = Spring.StiffnessMedium)
-            }
-        }
-    ) { active -> if (active) 0f else 1f }
-    
-    // Dynamic spacing based on screen size
-    val contentSpacing = if (isCompactHeight) 10.dp else 16.dp
-    val horizontalPadding = if (isCompactHeight) 12.dp else 16.dp
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = horizontalPadding),
-        verticalArrangement = Arrangement.spacedBy(contentSpacing)
-    ) {
-        // Upper content that collapses when slider is active
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = upperContentHeight)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(scrollState)
-                    .alpha(upperContentAlpha),
-                verticalArrangement = Arrangement.spacedBy(if (isCompactHeight) 10.dp else 16.dp)
-            ) {
-                Text(
-                    "Set Alarm Location",
-                    style = if (isCompactHeight) MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
-
-                OutlinedTextField(
-                    value = viewModel.alarmName,
-                    onValueChange = { viewModel.alarmName = it },
-                    label = { Text("Alarm Name", fontSize = if (isCompactHeight) 12.sp else 14.sp) },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = if (isCompactHeight) 14.sp else 16.sp),
-                    trailingIcon = if (viewModel.alarmName.isNotEmpty()) {
-                        {
-                            IconButton(onClick = { viewModel.alarmName = "" }) {
-                                Icon(
-                                    imageVector = Icons.Default.Clear,
-                                    contentDescription = "Clear",
-                                    modifier = Modifier.size(if (isCompactHeight) 16.dp else 20.dp)
-                                )
-                            }
-                        }
-                    } else null
-                )
-
-                Column {
-                    Text("Active Days", fontWeight = FontWeight.SemiBold, fontSize = if (isCompactHeight) 13.sp else 14.sp)
-                    Spacer(Modifier.height(if (isCompactHeight) 4.dp else 8.dp))
-                    EnhancedDaySelector(viewModel.selectedDays, isCompact = isCompactHeight) { viewModel.selectedDays = it }
-                }
-
-                MapsPickerRow(
-                    label = "Sound",
-                    text = getMapRingtoneTitle(context, viewModel.alarmSoundUri),
-                    onClick = onPickRingtone,
-                    isCompact = isCompactHeight,
-                    onPlayClick = { playPreviewSound() },
-                    isPlaying = isPlayingPreview
-                )
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Gentle wake-up", fontWeight = FontWeight.Medium, fontSize = if (isCompactHeight) 13.sp else 14.sp)
-                        Text(
-                            "Starts quiet, gets louder",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = if (isCompactHeight) 11.sp else 12.sp
-                        )
-                    }
-                    Switch(
-                        checked = viewModel.isGradualVolume,
-                        onCheckedChange = { viewModel.isGradualVolume = it }
-                    )
-                }
-            }
-        }
-
-        // Radius slider - STAYS IN POSITION, always visible
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(if (isCompactHeight) 4.dp else 8.dp)
-        ) {
-            Text("Radius", fontWeight = FontWeight.SemiBold, fontSize = if (isCompactHeight) 13.sp else 14.sp)
-            Slider(
-                value = viewModel.radius,
-                onValueChange = { viewModel.radius = it },
-                valueRange = 100f..5000f,
-                interactionSource = sliderInteractionSource,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Text("${viewModel.radius.toInt()} meters", style = MaterialTheme.typography.bodyMedium, fontSize = if (isCompactHeight) 12.sp else 14.sp)
-        }
-
-        // Buttons - STAY IN POSITION for consistency
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = if (isCompactHeight) 4.dp else 8.dp)
-        ) {
-            TextButton(
-                onClick = onCancel,
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-            ) {
-                Text("Remove", fontSize = if (isCompactHeight) 13.sp else 14.sp)
-            }
-            Button(onClick = onSave) {
-                Text("Save Alarm", fontSize = if (isCompactHeight) 13.sp else 14.sp)
-            }
-        }
-
-        Spacer(Modifier.height(if (isCompactHeight) 16.dp else 32.dp))
-    }
-}
-
-@Composable
-fun MapsPickerRow(
-    label: String,
-    text: String,
-    onClick: () -> Unit,
-    isCompact: Boolean = false,
-    onPlayClick: (() -> Unit)? = null,
-    isPlaying: Boolean = false
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(if (isCompact) 48.dp else 56.dp)
-            .clip(RoundedCornerShape(4.dp))
-            .clickable(onClick = onClick)
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
-            .padding(horizontal = if (isCompact) 12.dp else 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                label,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = if (isCompact) 10.sp else 12.sp
-            )
-            Text(text, fontWeight = FontWeight.SemiBold, fontSize = if (isCompact) 13.sp else 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (onPlayClick != null) {
-                TextButton(
-                    onClick = onPlayClick,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        if (isPlaying) "Stop" else "Preview",
-                        fontSize = if (isCompact) 12.sp else 14.sp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-        }
-    }
-}
-
-@Composable
-fun MapsDaySelector(selectedDays: Set<Int>, onSelectionChange: (Set<Int>) -> Unit) {
-    val daysOfWeek = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
-    val calendarDays = listOf(
-        Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY,
-        Calendar.THURSDAY, Calendar.FRIDAY, Calendar.SATURDAY
-    )
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        daysOfWeek.forEachIndexed { index, dayLabel ->
-            val day = calendarDays[index]
-            val isSelected = selectedDays.contains(day)
-            FilterChip(
-                selected = isSelected,
-                onClick = { onSelectionChange(if (isSelected) selectedDays - day else selectedDays + day) },
-                label = { Text(dayLabel) },
-                leadingIcon = if (isSelected) { { Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp)) } } else null
-            )
-        }
-    }
-}
-
-fun getMapRingtoneTitle(context: Context, ringtoneUriString: String): String {
-    if (ringtoneUriString.isEmpty()) return "Default Sound"
-    return try {
-        val uri = Uri.parse(ringtoneUriString)
-        RingtoneManager.getRingtone(context, uri)?.getTitle(context)
-            ?: uri.lastPathSegment?.substringBeforeLast('.') ?: "Custom Sound"
-    } catch (exception: Exception) {
-        "Unknown Sound"
-    }
-}
-
-/**
- * Extract a readable location name from address components.
- * Priority: featureName > thoroughfare (street) > locality > subAdminArea > adminArea
- */
-fun getReadableLocationName(address: android.location.Address): String {
-    // Try to build a meaningful name from address components
-    val parts = mutableListOf<String>()
-    
-    // Add feature name (e.g., "Starbucks", "Central Park")
-    address.featureName?.let { if (it.isNotBlank() && !it.matches(Regex("\\d+"))) parts.add(it) }
-    
-    // Add thoroughfare (street name) if different from feature name
-    address.thoroughfare?.let { 
-        if (it.isNotBlank() && it != address.featureName && !it.matches(Regex("\\d+"))) {
-            parts.add(it)
-        }
-    }
-    
-    // Add locality (city/town) if not already included
-    address.locality?.let { 
-        if (it.isNotBlank() && !parts.contains(it)) {
-            parts.add(it)
-        }
-    }
-    
-    // If we don't have enough info, add subAdminArea
-    if (parts.size < 2) {
-        address.subAdminArea?.let { 
-            if (it.isNotBlank() && !parts.contains(it)) {
-                parts.add(it)
-            }
-        }
-    }
-    
-    // If still no good info, add adminArea (state/province)
-    if (parts.isEmpty()) {
-        address.adminArea?.let { if (it.isNotBlank()) parts.add(it) }
-    }
-    
-    return if (parts.isNotEmpty()) {
-        parts.take(2).joinToString(", ")
-    } else {
-        "Pinned Location"
-    }
-}
-
-/**
- * Check if a string is a Plus Code (Open Location Code).
- * Plus Codes have the format: 8FVC9G8F+5W or similar patterns with a + in them.
- * This also matches Plus Codes with trailing city/region names like "9G8F+5W Singapore".
- */
-fun isPlusCode(text: String): Boolean {
-    val trimmed = text.trim()
-    // Plus codes contain a '+' character
-    if (!trimmed.contains('+')) return false
-
-    // Extract the first "word" before any space/comma to check if it's the Plus Code part
-    val firstPart = trimmed.split(Regex("[\\s,]+")).firstOrNull() ?: return false
-
-    // Full Plus Code pattern (8 chars + 2+ chars): 8FVC9G8F+5W
-    val fullPlusCodePattern = Regex("^[2-9CFGHJMPQRVWX]{8}\\+[2-9CFGHJMPQRVWX]{2,}$", RegexOption.IGNORE_CASE)
-
-    // Short Plus Code pattern (4 chars + 2+ chars): 9G8F+5W (used with region)
-    val shortPlusCodePattern = Regex("^[2-9CFGHJMPQRVWX]{4,6}\\+[2-9CFGHJMPQRVWX]{2,}$", RegexOption.IGNORE_CASE)
-
-    // Check if the first part (before any space/comma) matches a Plus Code pattern
-    return fullPlusCodePattern.matches(firstPart) || shortPlusCodePattern.matches(firstPart)
-}
-
-/**
- * Generate a short, user-friendly alarm name from a location name.
- * Takes the most relevant 2-3 words.
- * For Plus Codes, extracts only the city/region name (e.g., "9G8F+5W Singapore" -> "Singapore").
- */
-fun getShortAlarmName(locationName: String): String {
-    val trimmed = locationName.trim()
-
-    // Check if it contains a Plus Code and extract the location part after it
-    if (trimmed.contains('+')) {
-        // Pattern to match Plus Code followed by optional location name
-        // Plus Code format: alphanumeric+alphanumeric, then optional space and location
-        val plusCodeWithLocation = Regex("^[A-Z0-9]{2,8}\\+[A-Z0-9]{2,}\\s*,?\\s*(.+)$", RegexOption.IGNORE_CASE)
-        val match = plusCodeWithLocation.find(trimmed)
-        if (match != null) {
-            // Extract the location part after the Plus Code
-            val locationPart = match.groupValues[1].trim()
-            if (locationPart.isNotBlank()) {
-                // Process the extracted location name
-                return extractShortName(locationPart)
-            }
-        }
-
-        // If it's just a Plus Code without a location name, return empty to let user input
-        if (isPlusCode(trimmed)) {
-            return ""
-        }
-    }
-
-    // Normal processing for non-Plus Code names
-    return extractShortName(trimmed)
-}
-
-/**
- * Extract a short name from a location string by taking the most relevant 2-3 words.
- */
-private fun extractShortName(locationName: String): String {
-    val commonWords = setOf("the", "a", "an", "at", "in", "on", "near", "by")
-    val words = locationName
-        .split(" ", ",", "-", "/")
-        .map { it.trim() }
-        .filter { it.isNotBlank() && it.lowercase() !in commonWords && !isPlusCode(it) }
-
-    return when {
-        words.isEmpty() -> ""
-        words.size == 1 -> words[0]
-        else -> words.take(2).joinToString(" ")
-    }
-}
-
-/**
- * Calculate distance in kilometers between two LatLng points using Haversine formula.
- */
-fun calculateDistance(point1: LatLng, point2: LatLng): Double {
-    val earthRadius = 6371.0 // Earth radius in kilometers
-    
-    val lat1Rad = Math.toRadians(point1.latitude)
-    val lat2Rad = Math.toRadians(point2.latitude)
-    val deltaLat = Math.toRadians(point2.latitude - point1.latitude)
-    val deltaLon = Math.toRadians(point2.longitude - point1.longitude)
-    
-    val a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
-            Math.cos(lat1Rad) * Math.cos(lat2Rad) *
-            Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2)
-    
-    val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-    
-    return earthRadius * c
 }

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">
+  <!-- White Background -->
+  <rect width="240" height="240" fill="#FFFFFF"/>
+  
+  <!-- 1. Outer Blue Ring -->
+  <circle cx="120" cy="120" r="100" fill="none" stroke="#345C86" stroke-width="18"/>
+  
+  <!-- 2. Red Sound Waves - Left -->
+  <path d="M85,95 A45,45 0 0,0 85,145" fill="none" stroke="#EF1C25" stroke-width="10" stroke-linecap="round"/>
+  <path d="M65,85 A65,65 0 0,0 65,155" fill="none" stroke="#EF1C25" stroke-width="10" stroke-linecap="round"/>
+  
+  <!-- 2. Red Sound Waves - Right -->
+  <path d="M155,95 A45,45 0 0,1 155,145" fill="none" stroke="#EF1C25" stroke-width="10" stroke-linecap="round"/>
+  <path d="M175,85 A65,65 0 0,1 175,155" fill="none" stroke="#EF1C25" stroke-width="10" stroke-linecap="round"/>
+  
+  <!-- 3. Bell Body - Top Knob -->
+  <path d="M110,78 L130,78 A10,8 0 1,0 110,78 Z" fill="#EF1C25"/>
+  
+  <!-- 3. Bell Body - Main Shape -->
+  <path d="M120,80 C135,80 148,95 152,125 C155,145 168,155 170,155 L170,162 L70,162 L70,155 C72,155 85,145 88,125 C92,95 105,80 120,80 Z" fill="#EF1C25"/>
+  
+  <!-- 3. Bell Body - Clapper -->
+  <path d="M110,162 L130,162 A10,10 0 0,1 110,162 Z" fill="#EF1C25"/>
+  
+  <!-- 4. Grey Oval Shadow -->
+  <ellipse cx="120" cy="154" rx="18" ry="6" fill="#B2B4B6" stroke="#000000" stroke-width="2"/>
+  
+  <!-- 5. Blue Map Pin -->
+  <path d="M120,154 C120,154 138,130 138,116 A18,18 0 1,0 102,116 C102,130 120,154 120,154 Z" fill="#0C2245"/>
+  
+  <!-- 6. Red Dot inside Pin -->
+  <circle cx="120" cy="116" r="6" fill="#EF1C25"/>
+</svg>

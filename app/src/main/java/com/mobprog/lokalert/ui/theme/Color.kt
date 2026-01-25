@@ -52,231 +52,231 @@ val StandardDarkOutline = Color(0xFF938F99)
 // MATERIAL 3 EXPRESSIVE - Vibrant, bold colors
 // ============================================================================
 
-// Expressive Light (Vibrant Purple/Pink)
-val ExpressiveLightPrimary = Color(0xFF6750A4)
+// Expressive Light (Vibrant Purple/Pink) - Enhanced vibrancy
+val ExpressiveLightPrimary = Color(0xFF7B1FA2) // Deeper purple
 val ExpressiveLightOnPrimary = Color.White
-val ExpressiveLightPrimaryContainer = Color(0xFFEADDFF)
-val ExpressiveLightOnPrimaryContainer = Color(0xFF21005D)
-val ExpressiveLightSecondary = Color(0xFFD81B60)
+val ExpressiveLightPrimaryContainer = Color(0xFFE1BEE7)
+val ExpressiveLightOnPrimaryContainer = Color(0xFF4A0072)
+val ExpressiveLightSecondary = Color(0xFFEC407A) // Vibrant pink
 val ExpressiveLightOnSecondary = Color.White
-val ExpressiveLightSecondaryContainer = Color(0xFFFFD9E2)
-val ExpressiveLightOnSecondaryContainer = Color(0xFF3E001D)
-val ExpressiveLightTertiary = Color(0xFF00897B)
+val ExpressiveLightSecondaryContainer = Color(0xFFFCE4EC)
+val ExpressiveLightOnSecondaryContainer = Color(0xFF880E4F)
+val ExpressiveLightTertiary = Color(0xFF00ACC1) // Teal accent
 val ExpressiveLightOnTertiary = Color.White
-val ExpressiveLightTertiaryContainer = Color(0xFFA7F3EC)
-val ExpressiveLightOnTertiaryContainer = Color(0xFF002019)
-val ExpressiveLightBackground = Color(0xFFFFFBFF)
+val ExpressiveLightTertiaryContainer = Color(0xFFB2EBF2)
+val ExpressiveLightOnTertiaryContainer = Color(0xFF006064)
+val ExpressiveLightBackground = Color(0xFFFFF8FC)
 val ExpressiveLightOnBackground = Color(0xFF1C1B1F)
-val ExpressiveLightSurface = Color(0xFFFFFBFF)
+val ExpressiveLightSurface = Color(0xFFFFF8FC)
 val ExpressiveLightOnSurface = Color(0xFF1C1B1F)
-val ExpressiveLightSurfaceVariant = Color(0xFFE7E0EC)
+val ExpressiveLightSurfaceVariant = Color(0xFFF3E5F5)
 val ExpressiveLightOnSurfaceVariant = Color(0xFF49454F)
-val ExpressiveLightOutline = Color(0xFF79747E)
+val ExpressiveLightOutline = Color(0xFF8E24AA)
 
-// Expressive Dark
-val ExpressiveDarkPrimary = Color(0xFFD0BCFF)
-val ExpressiveDarkOnPrimary = Color(0xFF381E72)
-val ExpressiveDarkPrimaryContainer = Color(0xFF4F378B)
-val ExpressiveDarkOnPrimaryContainer = Color(0xFFEADDFF)
-val ExpressiveDarkSecondary = Color(0xFFFFB1C8)
-val ExpressiveDarkOnSecondary = Color(0xFF5E1133)
-val ExpressiveDarkSecondaryContainer = Color(0xFF7B2949)
-val ExpressiveDarkOnSecondaryContainer = Color(0xFFFFD9E2)
-val ExpressiveDarkTertiary = Color(0xFF4FD8CB)
-val ExpressiveDarkOnTertiary = Color(0xFF00382F)
-val ExpressiveDarkTertiaryContainer = Color(0xFF005047)
-val ExpressiveDarkOnTertiaryContainer = Color(0xFFA7F3EC)
-val ExpressiveDarkBackground = Color(0xFF1C1B1F)
-val ExpressiveDarkOnBackground = Color(0xFFE6E1E5)
-val ExpressiveDarkSurface = Color(0xFF1C1B1F)
-val ExpressiveDarkOnSurface = Color(0xFFE6E1E5)
-val ExpressiveDarkSurfaceVariant = Color(0xFF49454F)
-val ExpressiveDarkOnSurfaceVariant = Color(0xFFCAC4D0)
-val ExpressiveDarkOutline = Color(0xFF938F99)
+// Expressive Dark - Enhanced for better contrast
+val ExpressiveDarkPrimary = Color(0xFFCE93D8) // Soft purple
+val ExpressiveDarkOnPrimary = Color(0xFF4A0072)
+val ExpressiveDarkPrimaryContainer = Color(0xFF7B1FA2)
+val ExpressiveDarkOnPrimaryContainer = Color(0xFFF3E5F5)
+val ExpressiveDarkSecondary = Color(0xFFF48FB1) // Soft pink
+val ExpressiveDarkOnSecondary = Color(0xFF880E4F)
+val ExpressiveDarkSecondaryContainer = Color(0xFFC2185B)
+val ExpressiveDarkOnSecondaryContainer = Color(0xFFFCE4EC)
+val ExpressiveDarkTertiary = Color(0xFF4DD0E1) // Bright teal
+val ExpressiveDarkOnTertiary = Color(0xFF006064)
+val ExpressiveDarkTertiaryContainer = Color(0xFF00838F)
+val ExpressiveDarkOnTertiaryContainer = Color(0xFFE0F7FA)
+val ExpressiveDarkBackground = Color(0xFF1A1218) // Purple-tinted dark
+val ExpressiveDarkOnBackground = Color(0xFFEDE7F0)
+val ExpressiveDarkSurface = Color(0xFF1A1218)
+val ExpressiveDarkOnSurface = Color(0xFFEDE7F0)
+val ExpressiveDarkSurfaceVariant = Color(0xFF3D2C45)
+val ExpressiveDarkOnSurfaceVariant = Color(0xFFD1C4D8)
+val ExpressiveDarkOutline = Color(0xFFBA68C8)
 
 // ============================================================================
-// OCEAN BREEZE - Calming blue/teal theme
+// OCEAN BREEZE - Calming blue/teal theme (Enhanced)
 // ============================================================================
 
-// Ocean Light
+// Ocean Light - Deeper, more vibrant blues
 val OceanLightPrimary = Color(0xFF0077B6)
 val OceanLightOnPrimary = Color.White
-val OceanLightPrimaryContainer = Color(0xFFCAF0F8)
-val OceanLightOnPrimaryContainer = Color(0xFF023E8A)
-val OceanLightSecondary = Color(0xFF48CAE4)
-val OceanLightOnSecondary = Color(0xFF003845)
-val OceanLightSecondaryContainer = Color(0xFFADE8F4)
-val OceanLightOnSecondaryContainer = Color(0xFF023E8A)
-val OceanLightTertiary = Color(0xFF00B4D8)
+val OceanLightPrimaryContainer = Color(0xFFB3E5FC)
+val OceanLightOnPrimaryContainer = Color(0xFF01579B)
+val OceanLightSecondary = Color(0xFF26C6DA) // Cyan accent
+val OceanLightOnSecondary = Color.White
+val OceanLightSecondaryContainer = Color(0xFFB2EBF2)
+val OceanLightOnSecondaryContainer = Color(0xFF006064)
+val OceanLightTertiary = Color(0xFF00ACC1)
 val OceanLightOnTertiary = Color.White
-val OceanLightTertiaryContainer = Color(0xFF90E0EF)
-val OceanLightOnTertiaryContainer = Color(0xFF03045E)
-val OceanLightBackground = Color(0xFFF8FDFF)
-val OceanLightOnBackground = Color(0xFF001F25)
-val OceanLightSurface = Color(0xFFF8FDFF)
-val OceanLightOnSurface = Color(0xFF001F25)
-val OceanLightSurfaceVariant = Color(0xFFDBE4E6)
-val OceanLightOnSurfaceVariant = Color(0xFF3F484A)
-val OceanLightOutline = Color(0xFF6F797A)
+val OceanLightTertiaryContainer = Color(0xFFE0F7FA)
+val OceanLightOnTertiaryContainer = Color(0xFF004D40)
+val OceanLightBackground = Color(0xFFF5FDFF)
+val OceanLightOnBackground = Color(0xFF001F27)
+val OceanLightSurface = Color(0xFFF5FDFF)
+val OceanLightOnSurface = Color(0xFF001F27)
+val OceanLightSurfaceVariant = Color(0xFFDCF3F9)
+val OceanLightOnSurfaceVariant = Color(0xFF37474F)
+val OceanLightOutline = Color(0xFF0288D1)
 
-// Ocean Dark
-val OceanDarkPrimary = Color(0xFF90E0EF)
+// Ocean Dark - Rich, deep ocean tones
+val OceanDarkPrimary = Color(0xFF4FC3F7) // Bright sky blue
 val OceanDarkOnPrimary = Color(0xFF003545)
-val OceanDarkPrimaryContainer = Color(0xFF004D62)
-val OceanDarkOnPrimaryContainer = Color(0xFFCAF0F8)
-val OceanDarkSecondary = Color(0xFFADE8F4)
-val OceanDarkOnSecondary = Color(0xFF003545)
-val OceanDarkSecondaryContainer = Color(0xFF004D62)
-val OceanDarkOnSecondaryContainer = Color(0xFFCAF0F8)
-val OceanDarkTertiary = Color(0xFF48CAE4)
+val OceanDarkPrimaryContainer = Color(0xFF0277BD)
+val OceanDarkOnPrimaryContainer = Color(0xFFE1F5FE)
+val OceanDarkSecondary = Color(0xFF80DEEA) // Soft cyan
+val OceanDarkOnSecondary = Color(0xFF004D40)
+val OceanDarkSecondaryContainer = Color(0xFF00838F)
+val OceanDarkOnSecondaryContainer = Color(0xFFE0F7FA)
+val OceanDarkTertiary = Color(0xFF4DD0E1)
 val OceanDarkOnTertiary = Color(0xFF00363F)
-val OceanDarkTertiaryContainer = Color(0xFF004E5A)
-val OceanDarkOnTertiaryContainer = Color(0xFF9EEFF8)
-val OceanDarkBackground = Color(0xFF001F25)
-val OceanDarkOnBackground = Color(0xFFA6EEFF)
-val OceanDarkSurface = Color(0xFF001F25)
-val OceanDarkOnSurface = Color(0xFFA6EEFF)
-val OceanDarkSurfaceVariant = Color(0xFF3F484A)
-val OceanDarkOnSurfaceVariant = Color(0xFFBFC8CA)
-val OceanDarkOutline = Color(0xFF899294)
+val OceanDarkTertiaryContainer = Color(0xFF006978)
+val OceanDarkOnTertiaryContainer = Color(0xFFB2EBF2)
+val OceanDarkBackground = Color(0xFF0A1929) // Deep navy blue
+val OceanDarkOnBackground = Color(0xFFE1F5FE)
+val OceanDarkSurface = Color(0xFF0A1929)
+val OceanDarkOnSurface = Color(0xFFE1F5FE)
+val OceanDarkSurfaceVariant = Color(0xFF1A3A4A)
+val OceanDarkOnSurfaceVariant = Color(0xFFB0BEC5)
+val OceanDarkOutline = Color(0xFF29B6F6)
 
 // ============================================================================
-// SUNSET GLOW - Warm orange/coral theme
+// SUNSET GLOW - Warm orange/coral theme (Enhanced)
 // ============================================================================
 
-// Sunset Light
-val SunsetLightPrimary = Color(0xFFE65100)
+// Sunset Light - Warm, vibrant sunset colors
+val SunsetLightPrimary = Color(0xFFE64A19) // Deep orange
 val SunsetLightOnPrimary = Color.White
 val SunsetLightPrimaryContainer = Color(0xFFFFCCBC)
-val SunsetLightOnPrimaryContainer = Color(0xFF3E0400)
-val SunsetLightSecondary = Color(0xFFFF7043)
+val SunsetLightOnPrimaryContainer = Color(0xFFBF360C)
+val SunsetLightSecondary = Color(0xFFFF5722) // Bright orange
 val SunsetLightOnSecondary = Color.White
 val SunsetLightSecondaryContainer = Color(0xFFFFAB91)
-val SunsetLightOnSecondaryContainer = Color(0xFF3E0A00)
-val SunsetLightTertiary = Color(0xFFFFD54F)
+val SunsetLightOnSecondaryContainer = Color(0xFF4E342E)
+val SunsetLightTertiary = Color(0xFFFFB300) // Amber accent
 val SunsetLightOnTertiary = Color(0xFF3E2D00)
-val SunsetLightTertiaryContainer = Color(0xFFFFECB3)
-val SunsetLightOnTertiaryContainer = Color(0xFF3E2D00)
-val SunsetLightBackground = Color(0xFFFFFBFF)
-val SunsetLightOnBackground = Color(0xFF201A19)
-val SunsetLightSurface = Color(0xFFFFFBFF)
-val SunsetLightOnSurface = Color(0xFF201A19)
-val SunsetLightSurfaceVariant = Color(0xFFF5DED8)
-val SunsetLightOnSurfaceVariant = Color(0xFF534340)
-val SunsetLightOutline = Color(0xFF85736F)
+val SunsetLightTertiaryContainer = Color(0xFFFFE082)
+val SunsetLightOnTertiaryContainer = Color(0xFF5D4037)
+val SunsetLightBackground = Color(0xFFFFF8F5)
+val SunsetLightOnBackground = Color(0xFF2D1B14)
+val SunsetLightSurface = Color(0xFFFFF8F5)
+val SunsetLightOnSurface = Color(0xFF2D1B14)
+val SunsetLightSurfaceVariant = Color(0xFFFBE9E7)
+val SunsetLightOnSurfaceVariant = Color(0xFF5D4037)
+val SunsetLightOutline = Color(0xFFFF7043)
 
-// Sunset Dark
-val SunsetDarkPrimary = Color(0xFFFFB59D)
-val SunsetDarkOnPrimary = Color(0xFF5C1900)
-val SunsetDarkPrimaryContainer = Color(0xFF822700)
-val SunsetDarkOnPrimaryContainer = Color(0xFFFFDBCF)
-val SunsetDarkSecondary = Color(0xFFFFB4A1)
-val SunsetDarkOnSecondary = Color(0xFF5C1900)
-val SunsetDarkSecondaryContainer = Color(0xFF7C2D12)
-val SunsetDarkOnSecondaryContainer = Color(0xFFFFDBCF)
-val SunsetDarkTertiary = Color(0xFFFFE082)
+// Sunset Dark - Rich, warm evening tones
+val SunsetDarkPrimary = Color(0xFFFF8A65) // Soft coral
+val SunsetDarkOnPrimary = Color(0xFF4E1600)
+val SunsetDarkPrimaryContainer = Color(0xFFBF360C)
+val SunsetDarkOnPrimaryContainer = Color(0xFFFFE0B2)
+val SunsetDarkSecondary = Color(0xFFFFAB91) // Peach
+val SunsetDarkOnSecondary = Color(0xFF5D4037)
+val SunsetDarkSecondaryContainer = Color(0xFFD84315)
+val SunsetDarkOnSecondaryContainer = Color(0xFFFFCCBC)
+val SunsetDarkTertiary = Color(0xFFFFD54F) // Golden
 val SunsetDarkOnTertiary = Color(0xFF3E2D00)
-val SunsetDarkTertiaryContainer = Color(0xFF5C4300)
-val SunsetDarkOnTertiaryContainer = Color(0xFFFFECB3)
-val SunsetDarkBackground = Color(0xFF201A19)
-val SunsetDarkOnBackground = Color(0xFFEDE0DD)
-val SunsetDarkSurface = Color(0xFF201A19)
-val SunsetDarkOnSurface = Color(0xFFEDE0DD)
-val SunsetDarkSurfaceVariant = Color(0xFF534340)
-val SunsetDarkOnSurfaceVariant = Color(0xFFD8C2BC)
-val SunsetDarkOutline = Color(0xFFA08C87)
+val SunsetDarkTertiaryContainer = Color(0xFFFF8F00)
+val SunsetDarkOnTertiaryContainer = Color(0xFFFFF8E1)
+val SunsetDarkBackground = Color(0xFF1A120E) // Dark warm brown
+val SunsetDarkOnBackground = Color(0xFFFFF3E0)
+val SunsetDarkSurface = Color(0xFF1A120E)
+val SunsetDarkOnSurface = Color(0xFFFFF3E0)
+val SunsetDarkSurfaceVariant = Color(0xFF3E2723)
+val SunsetDarkOnSurfaceVariant = Color(0xFFD7CCC8)
+val SunsetDarkOutline = Color(0xFFFF7043)
 
 // ============================================================================
-// FOREST GREEN - Nature-inspired green theme
+// FOREST GREEN - Nature-inspired green theme (Enhanced)
 // ============================================================================
 
-// Forest Light
-val ForestLightPrimary = Color(0xFF2E7D32)
+// Forest Light - Lush, natural greens
+val ForestLightPrimary = Color(0xFF388E3C) // Forest green
 val ForestLightOnPrimary = Color.White
-val ForestLightPrimaryContainer = Color(0xFFA5D6A7)
-val ForestLightOnPrimaryContainer = Color(0xFF002204)
-val ForestLightSecondary = Color(0xFF66BB6A)
+val ForestLightPrimaryContainer = Color(0xFFC8E6C9)
+val ForestLightOnPrimaryContainer = Color(0xFF1B5E20)
+val ForestLightSecondary = Color(0xFF4CAF50) // Leaf green
 val ForestLightOnSecondary = Color.White
-val ForestLightSecondaryContainer = Color(0xFFC8E6C9)
-val ForestLightOnSecondaryContainer = Color(0xFF002204)
-val ForestLightTertiary = Color(0xFF8D6E63)
+val ForestLightSecondaryContainer = Color(0xFFDCEDC8)
+val ForestLightOnSecondaryContainer = Color(0xFF33691E)
+val ForestLightTertiary = Color(0xFF8D6E63) // Wood brown accent
 val ForestLightOnTertiary = Color.White
 val ForestLightTertiaryContainer = Color(0xFFD7CCC8)
-val ForestLightOnTertiaryContainer = Color(0xFF231917)
-val ForestLightBackground = Color(0xFFFCFDF7)
-val ForestLightOnBackground = Color(0xFF1A1C19)
-val ForestLightSurface = Color(0xFFFCFDF7)
-val ForestLightOnSurface = Color(0xFF1A1C19)
-val ForestLightSurfaceVariant = Color(0xFFDEE5D9)
+val ForestLightOnTertiaryContainer = Color(0xFF4E342E)
+val ForestLightBackground = Color(0xFFF1F8E9) // Very light green tint
+val ForestLightOnBackground = Color(0xFF1B1C1A)
+val ForestLightSurface = Color(0xFFF1F8E9)
+val ForestLightOnSurface = Color(0xFF1B1C1A)
+val ForestLightSurfaceVariant = Color(0xFFDCEDC8)
 val ForestLightOnSurfaceVariant = Color(0xFF424940)
-val ForestLightOutline = Color(0xFF72796F)
+val ForestLightOutline = Color(0xFF43A047)
 
-// Forest Dark
-val ForestDarkPrimary = Color(0xFFA5D6A7)
-val ForestDarkOnPrimary = Color(0xFF00390A)
-val ForestDarkPrimaryContainer = Color(0xFF1B5E20)
+// Forest Dark - Deep, rich forest tones
+val ForestDarkPrimary = Color(0xFF81C784) // Soft green
+val ForestDarkOnPrimary = Color(0xFF003300)
+val ForestDarkPrimaryContainer = Color(0xFF2E7D32)
 val ForestDarkOnPrimaryContainer = Color(0xFFC8E6C9)
-val ForestDarkSecondary = Color(0xFFC8E6C9)
-val ForestDarkOnSecondary = Color(0xFF00390A)
-val ForestDarkSecondaryContainer = Color(0xFF2E5A30)
-val ForestDarkOnSecondaryContainer = Color(0xFFDEF4DE)
-val ForestDarkTertiary = Color(0xFFD7CCC8)
-val ForestDarkOnTertiary = Color(0xFF3A2E2C)
-val ForestDarkTertiaryContainer = Color(0xFF514542)
-val ForestDarkOnTertiaryContainer = Color(0xFFF4DFD9)
-val ForestDarkBackground = Color(0xFF1A1C19)
-val ForestDarkOnBackground = Color(0xFFE2E3DD)
-val ForestDarkSurface = Color(0xFF1A1C19)
-val ForestDarkOnSurface = Color(0xFFE2E3DD)
-val ForestDarkSurfaceVariant = Color(0xFF424940)
-val ForestDarkOnSurfaceVariant = Color(0xFFC2C9BD)
-val ForestDarkOutline = Color(0xFF8C9388)
+val ForestDarkSecondary = Color(0xFFA5D6A7) // Mint green
+val ForestDarkOnSecondary = Color(0xFF1B5E20)
+val ForestDarkSecondaryContainer = Color(0xFF388E3C)
+val ForestDarkOnSecondaryContainer = Color(0xFFE8F5E9)
+val ForestDarkTertiary = Color(0xFFBCAAA4) // Soft wood
+val ForestDarkOnTertiary = Color(0xFF4E342E)
+val ForestDarkTertiaryContainer = Color(0xFF6D4C41)
+val ForestDarkOnTertiaryContainer = Color(0xFFEFEBE9)
+val ForestDarkBackground = Color(0xFF0D1A0D) // Dark forest
+val ForestDarkOnBackground = Color(0xFFE8F5E9)
+val ForestDarkSurface = Color(0xFF0D1A0D)
+val ForestDarkOnSurface = Color(0xFFE8F5E9)
+val ForestDarkSurfaceVariant = Color(0xFF2E4830)
+val ForestDarkOnSurfaceVariant = Color(0xFFC5E1A5)
+val ForestDarkOutline = Color(0xFF66BB6A)
 
 // ============================================================================
-// RETRO NEON - 80s inspired neon colors
+// RETRO NEON - 80s inspired neon colors (Enhanced)
 // ============================================================================
 
-// Retro Light (Softer neon for light mode)
-val RetroLightPrimary = Color(0xFFE91E63)
+// Retro Light - Softer neon with 80s pastel vibes
+val RetroLightPrimary = Color(0xFFD500F9) // Electric purple
 val RetroLightOnPrimary = Color.White
-val RetroLightPrimaryContainer = Color(0xFFFCE4EC)
-val RetroLightOnPrimaryContainer = Color(0xFF560027)
-val RetroLightSecondary = Color(0xFF00BCD4)
-val RetroLightOnSecondary = Color.White
-val RetroLightSecondaryContainer = Color(0xFFB2EBF2)
-val RetroLightOnSecondaryContainer = Color(0xFF003740)
-val RetroLightTertiary = Color(0xFFFFEB3B)
+val RetroLightPrimaryContainer = Color(0xFFF3E5F5)
+val RetroLightOnPrimaryContainer = Color(0xFF6A1B9A)
+val RetroLightSecondary = Color(0xFF00E5FF) // Cyan
+val RetroLightOnSecondary = Color(0xFF003740)
+val RetroLightSecondaryContainer = Color(0xFFE0F7FA)
+val RetroLightOnSecondaryContainer = Color(0xFF006064)
+val RetroLightTertiary = Color(0xFFFFEA00) // Electric yellow
 val RetroLightOnTertiary = Color(0xFF3E3500)
 val RetroLightTertiaryContainer = Color(0xFFFFF9C4)
-val RetroLightOnTertiaryContainer = Color(0xFF3E3500)
-val RetroLightBackground = Color(0xFFFFF8F9)
-val RetroLightOnBackground = Color(0xFF1F1A1B)
-val RetroLightSurface = Color(0xFFFFF8F9)
-val RetroLightOnSurface = Color(0xFF1F1A1B)
-val RetroLightSurfaceVariant = Color(0xFFF3DDE1)
-val RetroLightOnSurfaceVariant = Color(0xFF524346)
-val RetroLightOutline = Color(0xFF847376)
+val RetroLightOnTertiaryContainer = Color(0xFF5D4037)
+val RetroLightBackground = Color(0xFFFFF8FC)
+val RetroLightOnBackground = Color(0xFF1F1A1F)
+val RetroLightSurface = Color(0xFFFFF8FC)
+val RetroLightOnSurface = Color(0xFF1F1A1F)
+val RetroLightSurfaceVariant = Color(0xFFF8E1F4)
+val RetroLightOnSurfaceVariant = Color(0xFF4A2A58)
+val RetroLightOutline = Color(0xFFE040FB)
 
-// Retro Dark (Full neon effect)
-val RetroDarkPrimary = Color(0xFFFF4081)
-val RetroDarkOnPrimary = Color(0xFF4A0025)
-val RetroDarkPrimaryContainer = Color(0xFF6D003A)
-val RetroDarkOnPrimaryContainer = Color(0xFFFFD9E3)
-val RetroDarkSecondary = Color(0xFF00E5FF)
-val RetroDarkOnSecondary = Color(0xFF003640)
-val RetroDarkSecondaryContainer = Color(0xFF004D5A)
-val RetroDarkOnSecondaryContainer = Color(0xFF97F0FF)
-val RetroDarkTertiary = Color(0xFFFFFF00)
+// Retro Dark (Full neon effect - enhanced)
+val RetroDarkPrimary = Color(0xFFE040FB) // Neon magenta
+val RetroDarkOnPrimary = Color(0xFF38003D)
+val RetroDarkPrimaryContainer = Color(0xFF7B1FA2)
+val RetroDarkOnPrimaryContainer = Color(0xFFF8BBD0)
+val RetroDarkSecondary = Color(0xFF00FFFF) // Neon cyan
+val RetroDarkOnSecondary = Color(0xFF003D40)
+val RetroDarkSecondaryContainer = Color(0xFF00838F)
+val RetroDarkOnSecondaryContainer = Color(0xFFB2EBF2)
+val RetroDarkTertiary = Color(0xFFFFFF00) // Neon yellow
 val RetroDarkOnTertiary = Color(0xFF3E3500)
-val RetroDarkTertiaryContainer = Color(0xFF5C4F00)
-val RetroDarkOnTertiaryContainer = Color(0xFFFFFF8A)
-val RetroDarkBackground = Color(0xFF0D0D0D)
-val RetroDarkOnBackground = Color(0xFFEAE1E3)
-val RetroDarkSurface = Color(0xFF0D0D0D)
-val RetroDarkOnSurface = Color(0xFFEAE1E3)
-val RetroDarkSurfaceVariant = Color(0xFF2A2325)
-val RetroDarkOnSurfaceVariant = Color(0xFFD6C2C6)
-val RetroDarkOutline = Color(0xFF9E8C90)
+val RetroDarkTertiaryContainer = Color(0xFFF57F17)
+val RetroDarkOnTertiaryContainer = Color(0xFFFFF8E1)
+val RetroDarkBackground = Color(0xFF0A0010) // Deep purple-black
+val RetroDarkOnBackground = Color(0xFFF5E8FF)
+val RetroDarkSurface = Color(0xFF0A0010)
+val RetroDarkOnSurface = Color(0xFFF5E8FF)
+val RetroDarkSurfaceVariant = Color(0xFF2D1A36)
+val RetroDarkOnSurfaceVariant = Color(0xFFE1BEE7)
+val RetroDarkOutline = Color(0xFFAA00FF)
 
 // ============================================================================
 // MONOCHROME - Classic black and white

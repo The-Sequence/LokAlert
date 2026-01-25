@@ -749,7 +749,7 @@ private fun iOS6CelebrationPage() {
     ) {
         // Celebration icon
         Text(
-            text = "🎉",
+            text = "",
             fontSize = (80 * bounceScale).sp
         )
         

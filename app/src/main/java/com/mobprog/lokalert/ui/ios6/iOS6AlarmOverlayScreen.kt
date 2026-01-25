@@ -50,6 +50,7 @@ fun iOS6AlarmOverlayScreen(
     alarmName: String,
     latitude: Double = 0.0,
     longitude: Double = 0.0,
+    isDemoMode: Boolean = false,
     dismissStyle: Int = 0, // 0=Slider, 1=SwipeUp, 2=Button
     showEmoji: Boolean = true,
     emoji: String = "🚨",

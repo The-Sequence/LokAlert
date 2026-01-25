@@ -37,7 +37,8 @@ fun SearchSection(
     onSearch: ((String) -> Unit)? = null,
     onSuggestionClick: ((String) -> Unit)? = null,
     onSearchBarFocused: (() -> Unit)? = null,
-    onPositioned: ((Rect) -> Unit)? = null
+    onPositioned: ((Rect) -> Unit)? = null,
+    applyTopPadding: Boolean = true // Control whether internal top padding is applied
 ) {
     var searchText by remember { mutableStateOf("") }
     var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -119,7 +120,7 @@ fun SearchSection(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp) // Outer padding from screen edges
-            .padding(top = topPadding) // Dynamic padding - less in landscape to avoid overlap
+            .then(if (applyTopPadding) Modifier.padding(top = topPadding) else Modifier) // Dynamic padding - only apply when not below demo banner
     ) {
         Surface(
             shadowElevation = 8.dp,

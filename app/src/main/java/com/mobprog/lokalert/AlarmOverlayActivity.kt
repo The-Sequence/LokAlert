@@ -116,6 +116,7 @@ class AlarmOverlayActivity : ComponentActivity() {
         val latitude = intent?.getDoubleExtra("LATITUDE", 0.0) ?: 0.0
         val longitude = intent?.getDoubleExtra("LONGITUDE", 0.0) ?: 0.0
         val isGradualVolume = intent?.getBooleanExtra("IS_GRADUAL_VOLUME", false) ?: false
+        val isDemoMode = intent?.getBooleanExtra("IS_DEMO_MODE", false) ?: false
         
         // Get vibration intensity from settings
         CoroutineScope(Dispatchers.Main).launch {
@@ -139,39 +140,86 @@ class AlarmOverlayActivity : ComponentActivity() {
             val darkMode by appPreferences.darkMode.collectAsState(initial = 0)
             val designLanguage by appPreferences.designLanguage.collectAsState(initial = 0)
             
+            // State for demo mode restart dialog
+            var showDemoRestartDialog by remember { mutableStateOf(false) }
+            
+            // Demo mode manager for handling restart/exit
+            val demoModeManager = remember { DemoModeManager.getInstance(applicationContext) }
+            
             LokAlertTheme(darkMode = darkMode) {
-                if (designLanguage == 1) {
-                    // iOS 6 themed alarm overlay
-                    com.mobprog.lokalert.ui.ios6.iOS6AlarmOverlayScreen(
-                        alarmName = alarmName,
-                        latitude = latitude,
-                        longitude = longitude,
-                        onDismiss = {
-                            stopAlarm()
-                            finish()
-                            @Suppress("DEPRECATION")
-                            overridePendingTransition(0, 0)
-                        },
-                        onSnooze = {
-                            stopAlarm()
-                            scheduleSnoozeAlarm(alarmName, soundUri, isGradualVolume, latitude, longitude)
-                            finish()
-                            @Suppress("DEPRECATION")
-                            overridePendingTransition(0, 0)
-                        }
-                    )
+                // When dialog is shown, ONLY show the dialog (hide alarm screen)
+                if (showDemoRestartDialog) {
+                    // Full screen background for dialog
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        DemoAlarmDismissDialog(
+                            onRestartDemo = {
+                                demoModeManager.requestRestartOnboarding()
+                                finish()
+                                @Suppress("DEPRECATION")
+                                overridePendingTransition(0, 0)
+                            },
+                            onExitDemo = {
+                                demoModeManager.exitDemoMode()
+                                finish()
+                                @Suppress("DEPRECATION")
+                                overridePendingTransition(0, 0)
+                            }
+                        )
+                    }
                 } else {
-                    AlarmOverlayScreen(
-                        alarmName = alarmName,
-                        latitude = latitude,
-                        longitude = longitude,
-                        onDismiss = {
-                            stopAlarm()
-                            finish()
-                            @Suppress("DEPRECATION")
-                            overridePendingTransition(0, 0)
-                        }
-                    )
+                    // Show alarm overlay only when dialog is not visible
+                    if (designLanguage == 1) {
+                        // iOS 6 themed alarm overlay
+                        com.mobprog.lokalert.ui.ios6.iOS6AlarmOverlayScreen(
+                            alarmName = alarmName,
+                            latitude = latitude,
+                            longitude = longitude,
+                            isDemoMode = isDemoMode,
+                            onDismiss = {
+                                if (isDemoMode) {
+                                    // Stop alarm and show restart dialog
+                                    stopAlarm()
+                                    showDemoRestartDialog = true
+                                } else {
+                                    stopAlarm()
+                                    finish()
+                                    @Suppress("DEPRECATION")
+                                    overridePendingTransition(0, 0)
+                                }
+                            },
+                            onSnooze = {
+                                stopAlarm()
+                                scheduleSnoozeAlarm(alarmName, soundUri, isGradualVolume, latitude, longitude)
+                                finish()
+                                @Suppress("DEPRECATION")
+                                overridePendingTransition(0, 0)
+                            }
+                        )
+                    } else {
+                        AlarmOverlayScreen(
+                            alarmName = alarmName,
+                            latitude = latitude,
+                            longitude = longitude,
+                            isDemoMode = isDemoMode,
+                            onDismiss = {
+                                if (isDemoMode) {
+                                    // Stop alarm and show restart dialog
+                                    stopAlarm()
+                                    showDemoRestartDialog = true
+                                } else {
+                                    stopAlarm()
+                                    finish()
+                                    @Suppress("DEPRECATION")
+                                    overridePendingTransition(0, 0)
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -408,6 +456,7 @@ fun AlarmOverlayScreen(
     alarmName: String,
     latitude: Double,
     longitude: Double,
+    isDemoMode: Boolean = false,
     onDismiss: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -415,6 +464,9 @@ fun AlarmOverlayScreen(
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val screenHeight = with(density) { configuration.screenHeightDp.dp.toPx() }
+    
+    // Demo mode manager for getting mock location
+    val demoModeManager = remember { DemoModeManager.getInstance(context) }
     
     // Get customization preferences
     val dismissStyle by appPreferences.overlayDismissStyle.collectAsState(initial = 0)
@@ -457,35 +509,59 @@ fun AlarmOverlayScreen(
         label = "swipeOffset"
     )
     
-    // Continuously update location
-    LaunchedEffect(Unit) {
+    // Continuously update location/distance
+    // Capture alarm location values to avoid shadowing in apply block
+    val alarmLat = latitude
+    val alarmLng = longitude
+    
+    // Use snapshotFlow to properly react to mockLocation state changes
+    LaunchedEffect(isDemoMode) {
         val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
         
-        while (true) {
-            try {
-                if (ContextCompat.checkSelfPermission(
-                        context,
-                        android.Manifest.permission.ACCESS_FINE_LOCATION
-                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                ) {
-                    fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                        location?.let {
-                            val alarmLocation = android.location.Location("").apply {
-                                this.latitude = latitude
-                                this.longitude = longitude
-                            }
-                            val userLocation = android.location.Location("").apply {
-                                this.latitude = it.latitude
-                                this.longitude = it.longitude
-                            }
-                            currentDistance = userLocation.distanceTo(alarmLocation)
+        if (isDemoMode) {
+            // In demo mode, collect mock location changes and update distance
+            snapshotFlow { demoModeManager.mockLocation.value }
+                .collect { currentMockLocation ->
+                    if (currentMockLocation != null) {
+                        val alarmLocation = android.location.Location("").apply {
+                            this.latitude = alarmLat
+                            this.longitude = alarmLng
                         }
+                        val userLocation = android.location.Location("").apply {
+                            this.latitude = currentMockLocation.latitude
+                            this.longitude = currentMockLocation.longitude
+                        }
+                        currentDistance = userLocation.distanceTo(alarmLocation)
                     }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+        } else {
+            // In normal mode, poll real GPS location
+            while (true) {
+                try {
+                    if (ContextCompat.checkSelfPermission(
+                            context,
+                            android.Manifest.permission.ACCESS_FINE_LOCATION
+                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    ) {
+                        fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                            location?.let {
+                                val alarmLocation = android.location.Location("").apply {
+                                    this.latitude = alarmLat
+                                    this.longitude = alarmLng
+                                }
+                                val userLocation = android.location.Location("").apply {
+                                    this.latitude = it.latitude
+                                    this.longitude = it.longitude
+                                }
+                                currentDistance = userLocation.distanceTo(alarmLocation)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                delay(1000)
             }
-            delay(1000)
         }
     }
     
@@ -829,6 +905,97 @@ fun SliderToDismiss(onDismiss: () -> Unit, accentColor: Color = Color(0xFFFF6B6B
                 tint = accentColor,
                 modifier = Modifier.size(28.dp)
             )
+        }
+    }
+}
+
+/**
+ * Dialog shown after dismissing alarm in demo mode - asks user if they want to try another demo
+ */
+@Composable
+fun DemoAlarmDismissDialog(
+    onRestartDemo: () -> Unit,
+    onExitDemo: () -> Unit
+) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = { /* Prevent dismiss by clicking outside */ },
+        properties = androidx.compose.ui.window.DialogProperties(
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false
+        )
+    ) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 8.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Header emoji
+                Text(
+                    text = "🎉",
+                    fontSize = 48.sp,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                
+                // Title
+                Text(
+                    text = "Demo Complete!",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // Description
+                Text(
+                    text = "You've experienced how LokAlert wakes you up when approaching your destination!",
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                // Question
+                Text(
+                    text = "Would you like to try another demo route?",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center
+                )
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                // Buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Exit Demo button
+                    OutlinedButton(
+                        onClick = onExitDemo,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Exit Demo")
+                    }
+                    
+                    // Try Another button
+                    Button(
+                        onClick = onRestartDemo,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Try Another")
+                    }
+                }
+            }
         }
     }
 }

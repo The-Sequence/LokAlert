@@ -18,6 +18,7 @@
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
@@ -31,12 +32,27 @@
         android:theme="@style/Theme.LokAlert">
         <receiver android:name=".AlarmReceiver" android:exported="false" />
         <receiver android:name=".SnoozeAlarmReceiver" android:exported="false" />
+        <receiver android:name=".AppRestartReceiver" android:exported="false" />
         
         <service
             android:name=".LocationTrackingService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="location" />
+        
+        <!-- DEPRECATED: AppRestartService replaced with AlarmManager + AppRestartReceiver approach
+             Kept here commented out as reference - can be removed in future versions
+        <service
+            android:name=".AppRestartService"
+            android:enabled="false"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:process=":restart">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="App theme restart service" />
+        </service>
+        -->
 
         <activity
             android:name=".AlarmOverlayActivity"
@@ -55,12 +71,11 @@
             android:theme="@style/Theme.LokAlert">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
         
-        <!-- Activity alias for Material3 icon (default) -->
+        <!-- Activity alias for Material3 icon (disabled by default, MainActivity is primary launcher) -->
         <activity-alias
             android:name=".MainActivityMaterial"
             android:enabled="false"

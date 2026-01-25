@@ -1,8 +1,12 @@
 package com.mobprog.lokalert.ui.ios6
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -20,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -45,10 +50,14 @@ fun iOS6LocationsScreen(
     onViewOnMap: () -> Unit,
     viewModel: MapsViewModel,
     onRecentSearchClick: (String) -> Unit = {},
-    isEmbedded: Boolean = false  // For tablet split-view
+    isEmbedded: Boolean = false,  // For tablet split-view
+    onNavigateToTrash: () -> Unit = {},
+    onUseForNewAlarm: (LocationAlarm) -> Unit = {}
 ) {
     val savedLocations by viewModel.savedLocations.collectAsState()
     var showFavoritesOnly by remember { mutableStateOf(false) }
+    val isSelectionMode = viewModel.isSelectionMode
+    val selectedAlarmIds = viewModel.selectedAlarmIds
     
     val displayedLocations = remember(savedLocations, showFavoritesOnly) {
         if (showFavoritesOnly) {
@@ -63,122 +72,209 @@ fun iOS6LocationsScreen(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(iOS6LinenBackground)
-    ) {
-        // iOS 6 Navigation Bar - only show if not embedded
-        if (!isEmbedded) {
-            iOS6NavBar(
-                title = "My Alarms",
-                rightAction = {
-                    iOS6NavBarButton(
-                        text = "Edit",
-                        onClick = { /* Toggle edit mode */ }
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(iOS6LinenBackground)
+        ) {
+            // iOS 6 Navigation Bar - only show if not embedded
+            if (!isEmbedded) {
+                if (isSelectionMode) {
+                    // Selection mode nav bar
+                    iOS6NavBar(
+                        title = "${selectedAlarmIds.size} Selected",
+                        leftAction = {
+                            iOS6NavBarButton(
+                                text = "Cancel",
+                                onClick = { viewModel.clearSelection() }
+                            )
+                        },
+                        rightAction = {
+                            iOS6NavBarButton(
+                                text = "Select All",
+                                onClick = { viewModel.selectAllAlarms() }
+                            )
+                        }
+                    )
+                } else {
+                    iOS6NavBar(
+                        title = "My Alarms",
+                        leftAction = {
+                            iOS6NavBarButton(
+                                text = "Trash",
+                                onClick = onNavigateToTrash
+                            )
+                        },
+                        rightAction = {
+                            iOS6NavBarButton(
+                                text = "Edit",
+                                onClick = { viewModel.toggleSelectionMode() }
+                            )
+                        }
                     )
                 }
-            )
-        }
-        
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(vertical = 16.dp)
-        ) {
-            // Recent Searches Section
-            if (recentSearches.isNotEmpty()) {
-                item {
-                    iOS6GroupedSection(header = "RECENT SEARCHES") {
-                        recentSearches.forEachIndexed { index, search ->
-                            iOS6SearchHistoryRow(
-                                searchText = search,
-                                onClick = { onRecentSearchClick(search) }
+            }
+            
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    top = 16.dp, 
+                    bottom = if (isSelectionMode && selectedAlarmIds.isNotEmpty()) 100.dp else 16.dp
+                )
+            ) {
+                // For embedded mode (tablet), show a trash button at top
+                if (isEmbedded) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "MY ALARMS",
+                                style = TextStyle(
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF6D6D72),
+                                    shadow = Shadow(
+                                        color = Color.White,
+                                        offset = Offset(0f, 1f),
+                                        blurRadius = 0f
+                                    )
+                                )
                             )
-                            if (index < recentSearches.size - 1) {
-                                iOS6Separator(startIndent = 44.dp)
-                            }
+                            iOS6NavBarButton(
+                                text = "Trash",
+                                onClick = onNavigateToTrash
+                            )
                         }
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-            }
-            
-            // Filter buttons
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    iOS6FilterButton(
-                        text = "All Alarms",
-                        isSelected = !showFavoritesOnly,
-                        onClick = { showFavoritesOnly = false }
-                    )
-                    iOS6FilterButton(
-                        text = "Favorites",
-                        isSelected = showFavoritesOnly,
-                        onClick = { showFavoritesOnly = true }
-                    )
-                }
-            }
-            
-            // Saved Alarms Section
-            item {
-                if (displayedLocations.isEmpty()) {
-                    iOS6EmptyStateCard()
-                }
-            }
-            
-            if (displayedLocations.isNotEmpty()) {
-                item {
-                    // Section header outside the grouped content
-                    Text(
-                        text = "SAVED ALARMS",
-                        modifier = Modifier.padding(start = 30.dp, top = 16.dp, bottom = 6.dp),
-                        style = TextStyle(
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF6D6D72),
-                            shadow = Shadow(
-                                color = Color.White,
-                                offset = Offset(0f, 1f),
-                                blurRadius = 0f
-                            )
-                        )
-                    )
                 }
                 
-                // Grouped card for all alarms
-                item {
-                    Column(
-                        modifier = Modifier
-                            .padding(horizontal = 10.dp)
-                            .shadow(2.dp, RoundedCornerShape(10.dp))
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color.White)
-                            .border(1.dp, Color(0xFFB4B4B6), RoundedCornerShape(10.dp))
-                    ) {
-                        displayedLocations.forEachIndexed { index, location ->
-                            iOS6AlarmRow(
-                                alarm = location,
-                                onEdit = { locationToEdit = it },
-                                onToggle = { viewModel.toggleAlarmEnabled(it) },
-                                onToggleFavorite = { viewModel.toggleFavorite(it) },
-                                onDelete = { viewModel.deleteLocation(it) }
+                // Recent Searches Section (hide in selection mode)
+                if (recentSearches.isNotEmpty() && !isSelectionMode) {
+                    item {
+                        iOS6GroupedSection(header = "RECENT SEARCHES") {
+                            recentSearches.forEachIndexed { index, search ->
+                                iOS6SearchHistoryRow(
+                                    searchText = search,
+                                    onClick = { onRecentSearchClick(search) }
+                                )
+                                if (index < recentSearches.size - 1) {
+                                    iOS6Separator(startIndent = 44.dp)
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+                
+                // Filter buttons (hide in selection mode)
+                if (!isSelectionMode) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            iOS6FilterButton(
+                                text = "All Alarms",
+                                isSelected = !showFavoritesOnly,
+                                onClick = { showFavoritesOnly = false }
                             )
-                            if (index < displayedLocations.size - 1) {
-                                iOS6Separator(startIndent = 72.dp)
+                            iOS6FilterButton(
+                                text = "Favorites",
+                                isSelected = showFavoritesOnly,
+                                onClick = { showFavoritesOnly = true }
+                            )
+                        }
+                    }
+                }
+                
+                // Saved Alarms Section
+                item {
+                    if (displayedLocations.isEmpty()) {
+                        iOS6EmptyStateCard()
+                    }
+                }
+                
+                if (displayedLocations.isNotEmpty()) {
+                    item {
+                        // Section header outside the grouped content
+                        Text(
+                            text = "SAVED ALARMS",
+                            modifier = Modifier.padding(start = 30.dp, top = 16.dp, bottom = 6.dp),
+                            style = TextStyle(
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF6D6D72),
+                                shadow = Shadow(
+                                    color = Color.White,
+                                    offset = Offset(0f, 1f),
+                                    blurRadius = 0f
+                                )
+                            )
+                        )
+                    }
+                    
+                    // Grouped card for all alarms
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .padding(horizontal = 10.dp)
+                                .shadow(2.dp, RoundedCornerShape(10.dp))
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White)
+                                .border(1.dp, Color(0xFFB4B4B6), RoundedCornerShape(10.dp))
+                        ) {
+                            displayedLocations.forEachIndexed { index, location ->
+                                iOS6AlarmRow(
+                                    alarm = location,
+                                    onEdit = { locationToEdit = it },
+                                    onToggle = { viewModel.toggleAlarmEnabled(it) },
+                                    onToggleFavorite = { viewModel.toggleFavorite(it) },
+                                    onDelete = { viewModel.deleteLocation(it) },
+                                    isSelectionMode = isSelectionMode,
+                                    isSelected = selectedAlarmIds.contains(location.id),
+                                    onLongPress = {
+                                        if (!isSelectionMode) {
+                                            viewModel.toggleSelectionMode()
+                                        }
+                                        viewModel.toggleAlarmSelection(location.id)
+                                    },
+                                    onSelect = { viewModel.toggleAlarmSelection(location.id) }
+                                )
+                                if (index < displayedLocations.size - 1) {
+                                    iOS6Separator(startIndent = 72.dp)
+                                }
                             }
                         }
                     }
                 }
+                
+                // Bottom spacing
+                item {
+                    Spacer(modifier = Modifier.height(32.dp))
+                }
             }
-            
-            // Bottom spacing
-            item {
-                Spacer(modifier = Modifier.height(32.dp))
+        }
+        
+        // iOS 6 styled floating delete button when in selection mode
+        if (isSelectionMode && selectedAlarmIds.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 24.dp)
+            ) {
+                iOS6DeleteSelectedButton(
+                    count = selectedAlarmIds.size,
+                    onClick = { viewModel.deleteSelectedAlarms() }
+                )
             }
         }
     }
@@ -198,6 +294,14 @@ fun iOS6LocationsScreen(
                 onSave = { name, activeDays, soundUri, isGradualVolume ->
                     viewModel.updateAlarmAllDetails(locationToEdit!!, name, activeDays, soundUri, isGradualVolume)
                     scope.launch { sheetState.hide() }.invokeOnCompletion { locationToEdit = null }
+                },
+                onUseForNewAlarm = {
+                    // Use this saved location as a starting point for a NEW alarm
+                    scope.launch { sheetState.hide() }.invokeOnCompletion {
+                        val alarm = locationToEdit!!
+                        locationToEdit = null
+                        onUseForNewAlarm(alarm)
+                    }
                 }
             )
         }
@@ -269,13 +373,18 @@ private fun iOS6SearchHistoryRow(
 // iOS 6 ALARM ROW
 // ============================================================================
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun iOS6AlarmRow(
     alarm: LocationAlarm,
     onEdit: (LocationAlarm) -> Unit,
     onToggle: (LocationAlarm) -> Unit,
     onToggleFavorite: (LocationAlarm) -> Unit,
-    onDelete: (LocationAlarm) -> Unit
+    onDelete: (LocationAlarm) -> Unit,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onLongPress: () -> Unit = {},
+    onSelect: () -> Unit = {}
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -283,11 +392,20 @@ fun iOS6AlarmRow(
     // Delete confirmation dialog state
     var showDeleteDialog by remember { mutableStateOf(false) }
     
+    val backgroundColor by animateColorAsState(
+        targetValue = when {
+            isSelected -> Color(0xFF007AFF).copy(alpha = 0.3f)
+            isPressed -> Color(0xFF007AFF).copy(alpha = 0.5f)
+            else -> Color.Transparent
+        },
+        label = "row_bg"
+    )
+    
     // Show iOS 6 styled delete confirmation
     if (showDeleteDialog) {
         iOS6AlertDialog(
             title = "Delete Alarm",
-            message = "Are you sure you want to delete \"${alarm.name}\"? This action cannot be undone.",
+            message = "Are you sure you want to delete \"${alarm.name}\"? It will be moved to trash.",
             confirmText = "Delete",
             dismissText = "Cancel",
             onConfirm = { onDelete(alarm) },
@@ -298,37 +416,80 @@ fun iOS6AlarmRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                if (isPressed) Color(0xFF007AFF).copy(alpha = 0.5f) else Color.Transparent
-            )
-            .clickable(
+            .background(backgroundColor)
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = { onEdit(alarm) }
+                onClick = {
+                    if (isSelectionMode) {
+                        onSelect()
+                    } else {
+                        onEdit(alarm)
+                    }
+                },
+                onLongClick = onLongPress
             )
             .padding(horizontal = 15.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Delete button (red minus)
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(CircleShape)
-                .background(Color(0xFFFF3B30))
-                .clickable { showDeleteDialog = true },
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "−",
-                style = TextStyle(
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
+        if (isSelectionMode) {
+            // Selection checkbox
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isSelected) {
+                            Brush.verticalGradient(
+                                colors = listOf(Color(0xFF007AFF), Color(0xFF0056B3))
+                            )
+                        } else {
+                            Brush.verticalGradient(
+                                colors = listOf(Color(0xFFE5E5EA), Color(0xFFD1D1D6))
+                            )
+                        }
+                    )
+                    .border(
+                        1.dp,
+                        if (isSelected) Color(0xFF0056B3) else Color(0xFFB4B4B6),
+                        CircleShape
+                    )
+                    .clickable { onSelect() },
+                contentAlignment = Alignment.Center
+            ) {
+                if (isSelected) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Selected",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.width(10.dp))
+        } else {
+            // Delete button (red minus)
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFF3B30))
+                    .clickable { showDeleteDialog = true },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "−",
+                    style = TextStyle(
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
                 )
-            )
+            }
+            
+            Spacer(modifier = Modifier.width(10.dp))
         }
-        
-        Spacer(modifier = Modifier.width(10.dp))
         
         // Location pin icon with colored background
         Box(
@@ -364,7 +525,7 @@ fun iOS6AlarmRow(
                     style = TextStyle(
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Medium,
-                        color = if (isPressed) Color.White else Color.Black
+                        color = if (isPressed || isSelected) Color.Black else Color.Black
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -375,7 +536,7 @@ fun iOS6AlarmRow(
                     Icon(
                         imageVector = Icons.Default.Star,
                         contentDescription = "Favorite",
-                        tint = if (isPressed) Color.White else Color(0xFFFFCC00),
+                        tint = Color(0xFFFFCC00),
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -385,16 +546,18 @@ fun iOS6AlarmRow(
                 text = "${alarm.radius.toInt()}m radius • ${formatActiveDays(alarm.activeDays)}",
                 style = TextStyle(
                     fontSize = 14.sp,
-                    color = if (isPressed) Color.White.copy(alpha = 0.8f) else Color(0xFF8E8E93)
+                    color = Color(0xFF8E8E93)
                 )
             )
         }
         
-        // Toggle switch
-        iOS6Toggle(
-            checked = alarm.isEnabled,
-            onCheckedChange = { onToggle(alarm) }
-        )
+        // Toggle switch (hide in selection mode)
+        if (!isSelectionMode) {
+            iOS6Toggle(
+                checked = alarm.isEnabled,
+                onCheckedChange = { onToggle(alarm) }
+            )
+        }
     }
 }
 
@@ -404,6 +567,64 @@ private fun formatActiveDays(activeDays: Set<Int>): String {
     
     val dayNames = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
     return activeDays.sorted().map { dayNames[it] }.joinToString(", ")
+}
+
+// ============================================================================
+// iOS 6 DELETE SELECTED BUTTON
+// ============================================================================
+
+@Composable
+fun iOS6DeleteSelectedButton(
+    count: Int,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    
+    Box(
+        modifier = Modifier
+            .shadow(4.dp, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = if (isPressed) {
+                        listOf(Color(0xFFC62828), Color(0xFFC62828))
+                    } else {
+                        listOf(Color(0xFFFF3B30), Color(0xFFD32F2F))
+                    }
+                )
+            )
+            .border(1.dp, Color(0xFFB71C1C), RoundedCornerShape(8.dp))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .padding(horizontal = 24.dp, vertical = 14.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.Delete,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Delete $count alarm${if (count > 1) "s" else ""}",
+                style = TextStyle(
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    shadow = Shadow(
+                        color = Color(0x60000000),
+                        offset = Offset(0f, -1f),
+                        blurRadius = 0f
+                    )
+                )
+            )
+        }
+    }
 }
 
 // ============================================================================
@@ -629,7 +850,8 @@ fun iOS6NavBarButton(
 fun iOS6EditLocationSheet(
     alarm: LocationAlarm,
     onDismiss: () -> Unit,
-    onSave: (String, Set<Int>, String, Boolean) -> Unit
+    onSave: (String, Set<Int>, String, Boolean) -> Unit,
+    onUseForNewAlarm: () -> Unit = {}
 ) {
     var name by remember { mutableStateOf(alarm.name) }
     var activeDays by remember { mutableStateOf(alarm.activeDays) }
@@ -697,6 +919,25 @@ fun iOS6EditLocationSheet(
                         onCheckedChange = { isGradualVolume = it }
                     )
                 }
+            )
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // Use for New Alarm button
+        iOS6GroupedSection(header = "ACTIONS") {
+            iOS6SettingsRow(
+                title = "Use Location for New Alarm",
+                trailing = {
+                    Text(
+                        text = "❯",
+                        style = TextStyle(
+                            fontSize = 18.sp,
+                            color = Color(0xFFC7C7CC)
+                        )
+                    )
+                },
+                onClick = onUseForNewAlarm
             )
         }
         
