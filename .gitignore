@@ -13,3 +13,11 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Sensitive files that must never be committed
+secrets.properties
+keystore.properties
+*.jks
+*.keystore
+google-services.json
+
