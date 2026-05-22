@@ -61,6 +61,12 @@ Since this is the **First Checkpoint**, please note the following behavior:
 
 ---
 
+## 🔐 Security Notes
+
+`android:allowBackup` is intentionally disabled in the app manifest to reduce the risk of unintended local/cloud backup of user alarm data on shared or compromised devices.
+
+---
+
 ## 🏃‍♀️ How to Run
 
 1.  Clone the repository.
